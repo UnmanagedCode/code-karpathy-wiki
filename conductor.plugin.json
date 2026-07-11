@@ -1,0 +1,30 @@
+{
+  "id": "code-karpathy-wiki",
+  "name": "Code Karpathy Wiki",
+  "version": "0.1.0",
+  "pluginApi": 1,
+  "conventions": [
+    {
+      "slug": "project-wiki",
+      "name": "Project Wiki",
+      "description": "Maintain a .wiki/ of durable codebase knowledge (gotchas, decisions, glossary) in this project's tree.",
+      "file": "conventions/project-wiki.md",
+      "scope": "project"
+    },
+    {
+      "slug": "orchestrator-wiki",
+      "name": "Orchestrator Wiki",
+      "description": "Maintain the conductor's machine-local .conduct/wiki/ of cross-project and per-project conducting knowledge.",
+      "file": "conventions/orchestrator-wiki.md",
+      "scope": "conductor"
+    }
+  ],
+  "scaffolds": [
+    {
+      "slug": "project-wiki",
+      "name": "Project Wiki Seed",
+      "description": "One-time setup instructions for the first worker to create this project's .wiki/, in-tree or out-of-tree.",
+      "file": "scaffolds/project-wiki.md"
+    }
+  ]
+}
