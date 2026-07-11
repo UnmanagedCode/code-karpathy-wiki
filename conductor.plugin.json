@@ -9,7 +9,8 @@
       "name": "Project Wiki",
       "description": "Maintain a .wiki/ of durable codebase knowledge (gotchas, decisions, glossary) in this project's tree.",
       "file": "conventions/project-wiki.md",
-      "scope": "project"
+      "scope": "project",
+      "scaffold": { "file": "scaffolds/project-wiki.md" }
     },
     {
       "slug": "orchestrator-wiki",
@@ -17,14 +18,6 @@
       "description": "Maintain the conductor's machine-local .conduct/wiki/ of cross-project and per-project conducting knowledge.",
       "file": "conventions/orchestrator-wiki.md",
       "scope": "conductor"
-    }
-  ],
-  "scaffolds": [
-    {
-      "slug": "project-wiki",
-      "name": "Project Wiki Seed",
-      "description": "One-time setup instructions for the first worker to create this project's .wiki/, in-tree or out-of-tree.",
-      "file": "scaffolds/project-wiki.md"
     }
   ]
 }
