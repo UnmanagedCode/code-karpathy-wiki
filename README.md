@@ -41,3 +41,7 @@ code-karpathy-wiki/
 
 - `scope: "conductor"` conventions aren't yet enabled by any released code-conductor version.
 - No automated validation is bundled here; correctness is by manual inspection against the manifest schema.
+
+## License
+
+This project is licensed under the GNU Affero General Public License v3.0 or later (AGPL-3.0+). Copyright © 2026 UnmanagedCode. See the [LICENSE](LICENSE) file for details.
