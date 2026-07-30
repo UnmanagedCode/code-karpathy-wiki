@@ -22,7 +22,7 @@ Enable it in **Settings → Plugins**. The scaffold is declared inside the `proj
 
 The `orchestrator-wiki` convention has `scope: "conductor"`. Conductor-scoped conventions require code-conductor support that is landing separately — until then this convention is authored to spec but cannot be enabled/validated in a running conductor.
 
-Recall is tool-first but degrades: if the plugin is disabled or its backend is down, the convention tells the conductor to read the `index.md` files directly.
+Recall goes through `read_index`: the convention and the tool ship together, so the conductor never has one without the other.
 
 See [docs/features.md](docs/features.md) for the scope routing rule and what `read_index` returns, [docs/protocol.md](docs/protocol.md) for the wire contract, and [docs/architecture.md](docs/architecture.md) for internals.
 

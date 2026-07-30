@@ -30,7 +30,7 @@ Both arguments may be given; the scopes are a **union deduped by path**, emitted
 
 A scope with no page yet is listed in `meta.missing` with no body — **"no workspace wiki yet" is a normal answer, not an error.** Only a malformed `project`/`workspace` name is refused.
 
-The convention makes recall tool-first with a fall-back clause: if the plugin is disabled or its backend is down, the conductor reads `.conduct/wiki/index.md` → the scope's `index.md` → the page directly. Nothing about capture depends on the tool.
+Nothing about capture depends on the tool.
 
 Read-only by design: there is no write tool and no frontend. Pages are written by the conductor with ordinary file edits.
 
