@@ -35,7 +35,7 @@ On a body over 256 KiB the request is *not* destroyed: tearing down the socket m
 1. **`SEGMENT_RE = /^[a-zA-Z0-9_-][a-zA-Z0-9._-]*$/`.** The leading class excludes `.`, so `..`, `.`, `...` and `.hidden` are rejected outright. A validator that admits `..` and leans on containment to catch it is the wrong shape in the one plugin whose whole job is turning these names into directory segments. Failure → `PROJECT_INVALID` / `WORKSPACE_INVALID`.
 2. **`safeJoin()` containment assert** — `path.resolve` must land on `wikiRoot` or inside `wikiRoot + path.sep`. Unreachable after layer one, kept as defence in depth. It returns `null` rather than throwing so the caller picks the outcome: an escaping *argument* is a refusal, an escaping *resolved* workspace is a skip.
 
-`path.resolve` does not follow symlinks, so a symlinked directory under `.conduct/wiki/` could point outside. Accepted: `.conduct/` is the conductor's own tree, and this plugin's `scaffolds/project-wiki.md` explicitly endorses symlinked wiki directories for the out-of-tree layout. The containment assert defends against argument-driven traversal, not against a hostile filesystem.
+`path.resolve` does not follow symlinks, so a symlinked directory under `.conduct/wiki/` could point outside. Accepted: `.conduct/` is the conductor's own machine-local tree, and a name is validated by both layers above before it ever reaches the filesystem — so reaching such a link requires write access to that tree, not a crafted argument. The containment assert defends against argument-driven traversal, not against a hostile filesystem.
 
 ## Workspace resolution
 
