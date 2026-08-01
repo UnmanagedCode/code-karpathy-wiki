@@ -29,7 +29,7 @@
     "tools": [
       {
         "name": "read_index",
-        "description": "Read the conductor wiki's index pages for a set of scopes. Always returns the wiki root index and global/index.md; `project` and `workspace` each add their own index, and `project` additionally resolves which workspace that project belongs to and adds that workspace's index. Overlapping scopes are deduped. A scope with no page yet is reported in meta.missing — that is a normal answer, not a failure. Emits a compact-JSON meta block followed by one separate raw text block per scope. Start wiki recall here, then read the pages the returned indexes point to.",
+        "description": "Read the conductor wiki's index pages for a set of scopes. Always returns the wiki root index and global/index.md; `project` and `workspace` each add their own index, and `project` additionally resolves which workspace that project belongs to and adds that workspace's index. Overlapping scopes are deduped. A scope with no page yet is reported in meta.missing — that is a normal answer, not a failure. Start wiki recall here, then read the pages the returned indexes point to.",
         "inputSchema": {
           "type": "object",
           "properties": {
