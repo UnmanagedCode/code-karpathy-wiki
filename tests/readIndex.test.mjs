@@ -114,6 +114,12 @@ test('an entirely absent wiki root yields no bodies and no throw', async () => {
     const r = await readIndex({});
     assert.deepEqual(r.text, []);
     assert.deepEqual(r.meta.missing, ['index.md', 'global/index.md']);
+    // The empty-text envelope still opts into the raw-text channel: a meta-only
+    // result, not {result}.
+    const env = await handle({ tool: 'read_index', arguments: {} });
+    assert.equal(env.body.result, undefined);
+    assert.deepEqual(env.body.text, []);
+    assert.ok(env.body.meta);
   });
 });
 
@@ -274,12 +280,14 @@ test('envelope: refusal rides in {result}, never {error}', async () => {
     const bad = await handle({ tool: 'read_index', arguments: { project: '..' }, caller: { sessionId: 'x', project: 'y' } });
     assert.equal(bad.status, 200);
     assert.equal(bad.body.error, undefined, 'a refusal must not be thrown at the model');
+    assert.equal(bad.body.text, undefined, 'a refusal rides in {result}, not the raw-text channel');
+    assert.equal(bad.body.meta, undefined);
     assert.equal(bad.body.result.ok, false);
     assert.equal(bad.body.result.code, 'PROJECT_INVALID');
   });
 });
 
-test('envelope: missing tool -> 400, unknown tool -> 200 {error}, success -> {result}', async () => {
+test('envelope: missing tool -> 400, unknown tool -> 200 {error}, success -> {text, meta}', async () => {
   await withWiki(async ({ write }) => {
     await write('index.md', 'r');
     await write('global/index.md', 'g');
@@ -294,8 +302,9 @@ test('envelope: missing tool -> 400, unknown tool -> 200 {error}, success -> {re
     const ok = await handle({ tool: 'read_index', arguments: {}, caller: { sessionId: 'x', project: 'y' } });
     assert.equal(ok.status, 200);
     assert.equal(ok.body.error, undefined);
-    assert.ok(Array.isArray(ok.body.result.text));
-    assert.ok(ok.body.result.meta.wikiRoot);
+    assert.equal(ok.body.result, undefined, 'success opts into the raw-text channel, not {result}');
+    assert.ok(Array.isArray(ok.body.text));
+    assert.ok(ok.body.meta.wikiRoot);
   });
 });
 
@@ -320,8 +329,9 @@ test('transport: health, routing, and the non-200 cases', async () => {
 
       const ok = await post(JSON.stringify({ tool: 'read_index', arguments: {}, caller: { sessionId: 'x', project: 'y' } }));
       assert.equal(ok.status, 200);
-      const payload = (await ok.json()).result;
-      assert.equal(payload.text.length, 2);
+      const body = await ok.json();
+      assert.equal(body.text.length, 2);
+      assert.equal(body.result, undefined);
 
       assert.equal((await post('{')).status, 400);
       assert.equal((await post('x'.repeat(300 * 1024))).status, 413);
