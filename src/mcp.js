@@ -17,7 +17,7 @@ const handlers = {
 // far cheaper and more legible than escaping the bodies into a JSON string.
 // `meta` is required so a refusal {ok:false,code,reason} (no `text`) or any other
 // structured return still rides in {result}.
-function isRawTextResult(r) {
+export function isRawTextResult(r) {
   if (!r || typeof r !== 'object') return false;
   if (!('meta' in r) || !('text' in r)) return false;
   const { text } = r;

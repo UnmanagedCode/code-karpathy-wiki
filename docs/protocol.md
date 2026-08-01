@@ -17,7 +17,7 @@ The conductor POSTs `{tool, arguments, caller:{sessionId, project}}`. `caller` i
 
 | Status | Body | When |
 |---|---|---|
-| 200 | `{meta, text}` | success (opts into the raw-text channel) |
+| 200 | `{text, meta}` | success (opts into the raw-text channel) |
 | 200 | `{result: …}` | every domain refusal |
 | 200 | `{error: "unknown tool: <name>"}` | tool name not in the manifest |
 | 400 | `{error}` | `tool` missing/empty, or a body that isn't valid JSON |

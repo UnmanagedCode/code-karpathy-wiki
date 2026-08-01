@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { readIndex, MAX_FILE_BYTES } from '../src/wiki.js';
-import { handle } from '../src/mcp.js';
+import { handle, isRawTextResult } from '../src/mcp.js';
 import { createServer } from '../server.js';
 import { freshWiki, cleanup, resetEnv, useProjects, useFailingConductor } from './_helpers.mjs';
 
@@ -285,6 +285,19 @@ test('envelope: refusal rides in {result}, never {error}', async () => {
     assert.equal(bad.body.result.ok, false);
     assert.equal(bad.body.result.code, 'PROJECT_INVALID');
   });
+});
+
+test('isRawTextResult: meta is required, so {text} alone rides in {result}', () => {
+  // The predicate gates the raw-text channel. meta must be present so a future
+  // handler using `text` for structured data — or a bare {text:"..."} — is NOT
+  // hoisted out of {result}. Empty text: [] still qualifies (meta-only result).
+  assert.equal(isRawTextResult({ text: 'x' }), false, 'no meta -> not raw-text');
+  assert.equal(isRawTextResult({ meta: {}, text: 'x' }), true);
+  assert.equal(isRawTextResult({ meta: {}, text: [] }), true, 'empty text array is meta-only raw-text');
+  assert.equal(isRawTextResult({ meta: {}, text: [1] }), false, 'non-string text entry rejected');
+  assert.equal(isRawTextResult({ ok: false, code: 'X', reason: 'y' }), false, 'refusal not raw-text');
+  assert.equal(isRawTextResult(null), false);
+  assert.equal(isRawTextResult(undefined), false);
 });
 
 test('envelope: missing tool -> 400, unknown tool -> 200 {error}, success -> {text, meta}', async () => {
