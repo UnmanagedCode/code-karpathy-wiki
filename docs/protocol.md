@@ -17,7 +17,8 @@ The conductor POSTs `{tool, arguments, caller:{sessionId, project}}`. `caller` i
 
 | Status | Body | When |
 |---|---|---|
-| 200 | `{result: …}` | success, **and** every domain refusal |
+| 200 | `{text, meta}` | success (opts into the raw-text channel) |
+| 200 | `{result: …}` | every domain refusal |
 | 200 | `{error: "unknown tool: <name>"}` | tool name not in the manifest |
 | 400 | `{error}` | `tool` missing/empty, or a body that isn't valid JSON |
 | 405 | `{error}` | wrong method (`Allow` header set) |
@@ -39,13 +40,15 @@ The conductor POSTs `{tool, arguments, caller:{sessionId, project}}`. `caller` i
 
 No `required` array — both arguments are optional and may be combined. The declared `pattern` string-equals `SEGMENT_RE.source` in `src/paths.js`; `tests/manifest.test.mjs` asserts that equality so the manifest and runtime layers cannot drift.
 
-### Success — the `{meta, text}` channel
+### Success — the `{text, meta}` raw-text channel
+
+A success opts into the host's raw-text channel: `text` and `meta` ride at the **top level** of the body, not nested under `result`. The conductor bridge (`code-conductor/src/plugins/mcpBridge.js`) emits `meta` as one compact-JSON block and each entry of `text` as its own raw, unescaped content block — far cheaper and more legible than escaping the bodies into a single JSON string. Only the success path opts in; refusals still ride in `{result}` (see Refusals below).
 
 ```jsonc
-{ "result": {
+{
   "meta": { "wikiRoot": "/…/.conduct/wiki", "resolvedWorkspace": "CC-Dev", "missing": [], "truncated": [] },
   "text": [ "<!-- .conduct/wiki/index.md -->\n\n# Orchestrator wiki\n…", "…" ]
-} }
+}
 ```
 
 - `text` is a list of bodies (the host also accepts a single string). Each is led by a one-line self-labelling HTML comment `<!-- .conduct/wiki/<relpath> -->` followed by a blank line, so a body stays identifiable when blocks are flattened. Everything after that prefix is the file byte-for-byte.
