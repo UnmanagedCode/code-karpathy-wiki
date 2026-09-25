@@ -18,7 +18,7 @@ const ALLOWED_PROP_KEYS = new Set([
 const FORBIDDEN = ['$ref', 'oneOf', 'anyOf', 'allOf', 'not'];
 
 test('manifest identity + version matches package.json', () => {
-  assert.equal(manifest.id, 'code-karpathy-wiki');
+  assert.equal(manifest.id, 'code-wiki');
   assert.equal(manifest.pluginApi, 1);
   assert.equal(manifest.version, pkg.version);
 });
@@ -76,7 +76,7 @@ test('SEGMENT_RE rejects dot segments and accepts real names', () => {
   for (const bad of ['..', '.', '...', '.hidden', 'a/b', '', 'a b', 'a\\b']) {
     assert.equal(SEGMENT_RE.test(bad), false, `rejects ${JSON.stringify(bad)}`);
   }
-  for (const ok of ['code-kanban', 'CC-Dev', 'a', 'x_1.2', 'code-karpathy-wiki']) {
+  for (const ok of ['code-kanban', 'CC-Dev', 'a', 'x_1.2', 'code-karpathy-wiki', 'code-wiki']) {
     assert.equal(SEGMENT_RE.test(ok), true, `accepts ${ok}`);
   }
 });

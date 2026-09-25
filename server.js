@@ -120,7 +120,7 @@ export async function start({
   const server = createServer();
   await listenWithRetry(server, port, host);
   // eslint-disable-next-line no-console
-  console.log(`code-karpathy-wiki listening on http://${host}:${server.address().port}`);
+  console.log(`code-wiki listening on http://${host}:${server.address().port}`);
   return server;
 }
 

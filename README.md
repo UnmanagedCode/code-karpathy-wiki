@@ -2,6 +2,8 @@
 
 A code-conductor plugin that delivers an "LLM Wiki" as conventions and a seed scaffold, plus a read-only MCP backend for reading the conductor's wiki.
 
+It registers under the plugin id `code-wiki`, so its tools appear as `code-wiki__*` and its conventions as `code-wiki/<slug>`.
+
 ## What it does
 
 It encodes a two-wiki model:
