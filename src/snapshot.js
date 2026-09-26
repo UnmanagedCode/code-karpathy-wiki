@@ -184,8 +184,14 @@ export async function loadSnapshot(source) {
   // A complete walk saw every live file this source owns: drop the rest, so a
   // deleted file stops pinning memory. Ownership, not path prefix: a source
   // nested under this root (behind a dot-dir this walk skips) keeps its entries.
+  // Entries of any other owner whose root no longer resolves to a directory are
+  // dropped too — that source is never walked again, so nothing else would.
   if (!truncated) {
-    for (const [k, v] of cache) if (v.owner === rootReal && !seen.has(k)) cache.delete(k);
+    const alive = new Map([[rootReal, true]]);
+    for (const [k, v] of cache) {
+      if (!alive.has(v.owner)) alive.set(v.owner, await fs.stat(v.owner).then((st) => st.isDirectory(), () => false));
+      if (v.owner === rootReal ? !seen.has(k) : !alive.get(v.owner)) cache.delete(k);
+    }
   }
   const snap = buildSnapshot(source, files, dirs);
   snap.rootReal = rootReal;

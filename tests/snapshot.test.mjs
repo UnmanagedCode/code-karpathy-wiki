@@ -197,3 +197,22 @@ test('cache eviction only drops entries owned by the walked source: a nested pro
     assert.equal(_parseCached(real), false, 'the owning source still evicts its deleted file');
   });
 });
+
+// Invariant: entries whose owner root no longer exists are reclaimed — a nested
+// source's entries survive outer walks while its root exists, and the next
+// complete outer walk after the root is deleted drops them.
+test('cache entries of a deleted source root are reclaimed by the next complete walk of another source', async () => {
+  await withWiki(async ({ wiki, write }) => {
+    await write('index.md', '# Outer');
+    const inner = await write('proj/.wiki/inner.md', '# Inner');
+    await loadSnapshot({ id: 'p:proj', kind: 'project', label: 'proj', root: path.join(wiki, 'proj', '.wiki') });
+    const real = await fs.realpath(inner);
+    for (let i = 0; i < 2; i++) {
+      await loadSnapshot(ORCH());
+      assert.equal(_parseCached(real), true, `outer walk ${i} keeps a live nested source's entry`);
+    }
+    await fs.rm(path.join(wiki, 'proj', '.wiki'), { recursive: true });
+    await loadSnapshot(ORCH());
+    assert.equal(_parseCached(real), false, 'owner root gone -> reclaimed');
+  });
+});
