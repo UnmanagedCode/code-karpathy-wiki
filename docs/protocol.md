@@ -9,7 +9,7 @@
 | `GET`/`HEAD` | `/api/sources`, `/api/tree`, `/api/page`, `/api/lint`, `/api/search` | the browser API — see [Browser API](#browser-api) |
 | `GET`/`HEAD` | `/`, `/<name>.(html\|js\|css)` | the browser page's static assets |
 
-Manifest: `backend {start:"node server.js", healthPath:"/api/health"}`, `mcp {endpoint:"/api/mcp"}`, `frontend {path:"/", navLabel:"Wiki"}`. `mcp` and `frontend` each require `backend`. `frontend` accepts only `path` (must start with `/`) and `navLabel` (non-empty); any other key marks the plugin `invalid`.
+Manifest: `backend {start:"node server.js", healthPath:"/api/health"}`, `mcp {endpoint:"/api/mcp"}`, `frontend {path:"/", navLabel:"Code Wiki"}`. `mcp` and `frontend` each require `backend`. `frontend` accepts only `path` (must start with `/`) and `navLabel` (non-empty); any other key marks the plugin `invalid`.
 
 The MCP wire contract below covers `/api/mcp` only. The browser routes have their own error shape.
 
