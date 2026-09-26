@@ -99,7 +99,7 @@ code-karpathy-wiki/
 - The browser confines every walk entry and read by realpath (a symlink resolving outside a wiki root is omitted, or `403 PATH_ESCAPES`); `read_index` still does not — its containment assert guards against argument-driven traversal only. A swap between the realpath check and the read (TOCTOU) is accepted: exploiting either needs write access to the wiki tree.
 - Project wikis are listed only for projects on the `local` system, and only when `CONDUCTOR_URL` is set.
 - No live reload: pages are re-read on each view, the sidebar trees on ↻ or page reload.
-- The markdown renderer is a subset: no indented code blocks, setext headings, reference-style links or images (an image shows as a link to its source). Raw HTML is shown as literal text. Leading tabs become 4-column stops (code blocks included), ordered lists always number from 1, and nesting past `MAX_NESTING` is plain text.
+- The markdown renderer is a subset: no indented code blocks, setext headings, reference-style links or images (an image shows as a link to its source). Raw HTML is shown as literal text. Leading tabs become 4-column stops (code blocks included), ordered lists always number from 1, and nesting past `MAX_NESTING` is plain text. An HTML comment inside a link construct is not transparent: in `[[a<!--x-->b]]`, `[t](a<!--x-->b.md)` or a link title, the comment's bytes stay in the target or label, or the link is not recognised.
 - The page runs in an unsandboxed iframe on the host's origin, and the host has no auth, so the AST-only renderer plus the page's CSP are the XSS boundary.
 - Search is AND-of-substrings over raw page text, sorted by title match then hit count — not ranked by relevance.
 

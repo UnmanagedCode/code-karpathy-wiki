@@ -80,7 +80,7 @@ export function annotatedBlocks(page) {
   });
 }
 
-// realpath -> {key, entry}: unchanged files (same mtime and size) are neither
+// realpath -> {key, entry, owner}: unchanged files (same mtime and size) are neither
 // re-read nor re-parsed. One slot per file, so it is bounded by the tree.
 // Error entries are not cached, so a transient failure clears on the next walk.
 const cache = new Map();
@@ -107,7 +107,7 @@ async function readBounded(real, cap) {
   }
 }
 
-async function readEntry(real, st) {
+async function readEntry(real, st, owner) {
   const key = `${st.mtimeMs}|${st.size}`;
   const hit = cache.get(real);
   if (hit && hit.key === key) return hit.entry;
@@ -121,7 +121,7 @@ async function readEntry(real, st) {
   const entry = buf.length > MAX_PAGE_BYTES
     ? parseEntry(truncateUtf8(buf, MAX_PAGE_BYTES), true)
     : parseEntry(buf.toString('utf8'));
-  if (!entry.error) cache.set(real, { key, entry });
+  if (!entry.error) cache.set(real, { key, entry, owner });
   return entry;
 }
 
@@ -175,16 +175,17 @@ export async function loadSnapshot(source) {
         await walk(rel, [...stack, real]);
       } else if (st.isFile() && ent.name.endsWith('.md')) {
         seen.add(real);
-        const entry = await readEntry(real, st);
+        const entry = await readEntry(real, st, rootReal);
         if (entry) files.set(rel, entry);
       }
     }));
   };
   await walk('', [rootReal]);
-  // A complete walk saw every live file under this root: drop the rest, so a
-  // deleted file stops pinning memory. Other sources' entries are untouched.
+  // A complete walk saw every live file this source owns: drop the rest, so a
+  // deleted file stops pinning memory. Ownership, not path prefix: a source
+  // nested under this root (behind a dot-dir this walk skips) keeps its entries.
   if (!truncated) {
-    for (const k of cache.keys()) if (k.startsWith(rootReal + path.sep) && !seen.has(k)) cache.delete(k);
+    for (const [k, v] of cache) if (v.owner === rootReal && !seen.has(k)) cache.delete(k);
   }
   const snap = buildSnapshot(source, files, dirs);
   snap.rootReal = rootReal;

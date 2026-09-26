@@ -108,6 +108,7 @@ A markdown subset: ATX headings, paragraphs, emphasis/strong/strikethrough, code
 
 - Leading tabs expand to the next multiple of 4 columns before parsing, inside fenced code too.
 - Ordered lists always number from 1 on screen; the source's starting number is not shown.
+- An HTML comment inside a link construct is not transparent: in `[[a<!--x-->b]]`, `[t](a<!--x-->b.md)` or a link title, the comment's bytes stay in the target or label, or the link is not recognised. Elsewhere comments are dropped as if absent.
 - Quotes/lists nested deeper than `MAX_NESTING` (`src/markdown.js`) levels, and emphasis nested deeper than that, are shown as plain text from that depth on (no links are recognised there).
 
 See `docs/protocol.md` for the wire contract and refusal codes, `docs/architecture.md` for how paths and workspaces are resolved and how the browser is confined.

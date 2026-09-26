@@ -178,3 +178,22 @@ test('parse cache evicts entries whose file the walk no longer visits', async ()
     assert.equal(_parseCached(stay), true);
   });
 });
+
+// Invariant: eviction drops only entries owned by the source being walked — a
+// source nested inside another's root (reached only through a dot-dir the outer
+// walk skips) keeps its cache entries across walks of the outer source.
+test('cache eviction only drops entries owned by the walked source: a nested project wiki survives an outer walk', async () => {
+  await withWiki(async ({ wiki, write }) => {
+    await write('index.md', '# Outer');
+    const inner = await write('proj/.wiki/inner.md', '# Inner');
+    const PROJ = { id: 'p:proj', kind: 'project', label: 'proj', root: path.join(wiki, 'proj', '.wiki') };
+    await loadSnapshot(PROJ);
+    const real = await fs.realpath(inner);
+    assert.equal(_parseCached(real), true);
+    await loadSnapshot(ORCH());
+    assert.equal(_parseCached(real), true, 'outer walk leaves the inner source cached');
+    await fs.rm(inner);
+    await loadSnapshot(PROJ);
+    assert.equal(_parseCached(real), false, 'the owning source still evicts its deleted file');
+  });
+});
