@@ -24,7 +24,7 @@
     "start": "node server.js",
     "healthPath": "/api/health"
   },
-  "frontend": { "path": "/", "navLabel": "Wiki" },
+  "frontend": { "path": "/", "navLabel": "Code Wiki" },
   "mcp": {
     "endpoint": "/api/mcp",
     "tools": [

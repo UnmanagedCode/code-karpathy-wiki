@@ -1,6 +1,6 @@
 # code-karpathy-wiki
 
-A code-conductor plugin that delivers an "LLM Wiki" as conventions and a seed scaffold, plus a read-only backend for reading the wikis: an MCP tool for the conductor and a **Wiki** browser page for the human.
+A code-conductor plugin that delivers an "LLM Wiki" as conventions and a seed scaffold, plus a read-only backend for reading the wikis: an MCP tool for the conductor and a **Code Wiki** browser page for the human.
 
 It registers under the plugin id `code-wiki`, so its tools appear as `code-wiki__*` and its conventions as `code-wiki/<slug>`.
 
@@ -19,7 +19,7 @@ It ships two conventions, one scaffold, one MCP tool and one browser page:
 | `orchestrator-wiki` | convention | conductor | Composed into `.conduct/CONDUCT.md`; tells the conductor how to read/write `.conduct/wiki/`. |
 | `project-wiki` (scaffold) | scaffold | — | One-time setup directive folded into the first worker's brief, to seed `.wiki/` in-tree or out-of-tree. |
 | `read_index` | MCP tool | — | Returns the wiki index pages for a scope set — root + `global/`, optionally a project's and/or a workspace's. The entry point for wiki recall. |
-| **Wiki** | browser page | — | Read-only browser in the conductor's nav: a tree per wiki (orchestrator + each local project's `.wiki/`), rendered pages with `[[name]]` resolution and backlinks, a Health (lint) view, and full-text search. |
+| **Code Wiki** | browser page | — | Read-only browser in the conductor's nav: a tree per wiki (orchestrator + each local project's `.wiki/`), rendered pages with `[[name]]` resolution and backlinks, a Health (lint) view, and full-text search. |
 
 Enable it in **Settings → Plugins**. The scaffold is declared inside the `project-wiki` convention entry, so picking that convention also fires the scaffold at project creation.
 
@@ -37,7 +37,7 @@ node server.js    # standalone on :7200 (honours $PORT)
 curl localhost:7200/api/health
 ```
 
-Standalone, open `http://localhost:7200/` for the browser page (orchestrator wiki only: project wikis need `CONDUCTOR_URL`). Under the conductor it is the **Wiki** entry in the app switcher, served at `/plugins/code-wiki/`.
+Standalone, open `http://localhost:7200/` for the browser page (orchestrator wiki only: project wikis need `CONDUCTOR_URL`). Under the conductor it is the **Code Wiki** entry in the app switcher, served at `/plugins/code-wiki/`.
 
 Under the conductor the backend is supervised: `$PORT`, `PROJECTS_ROOT` and `CONDUCTOR_URL` are injected at spawn.
 
