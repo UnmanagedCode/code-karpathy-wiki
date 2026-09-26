@@ -109,3 +109,44 @@ test('no-write invariant: 405 for writes, trees unchanged after a full sweep', a
     assert.deepEqual([await treeDigest(wiki), await treeDigest(row.path)], before);
   });
 });
+
+function rawRequest(base, rawPath) {
+  const { port } = new URL(base);
+  return new Promise((resolve, reject) => {
+    http.get({ host: '127.0.0.1', port, path: rawPath }, (res) => {
+      let body = '';
+      res.on('data', (c) => { body += c; });
+      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body }));
+    }).on('error', reject);
+  });
+}
+
+// Invariant: every response carries the security headers; a malformed request URL is a 400 with a code.
+test('/api/health and a malformed URL carry CSP and nosniff; malformed URL -> 400 URL_INVALID', async () => {
+  await withServer(async ({ base }) => {
+    const h = await fetch(`${base}/api/health`);
+    assert.equal(h.headers.get('content-security-policy'), CSP);
+    assert.equal(h.headers.get('x-content-type-options'), 'nosniff');
+    const h405 = await fetch(`${base}/api/health`, { method: 'POST' });
+    assert.equal(h405.status, 405);
+    assert.equal(h405.headers.get('content-security-policy'), CSP);
+    const bad = await rawRequest(base, 'http://[');
+    assert.equal(bad.status, 400);
+    assert.equal(bad.headers['content-security-policy'], CSP);
+    assert.equal(bad.headers['x-content-type-options'], 'nosniff');
+    assert.equal(JSON.parse(bad.body).code, 'URL_INVALID');
+  });
+});
+
+// Invariant: an internal error is a generic 500 with a code and the headers — never the exception text.
+test('500 carries the security headers and a generic body, never e.message', async () => {
+  await withServer(async ({ base }) => {
+    useProjects([{ get name() { throw new Error('/secret/fs/path'); } }]);
+    const r = await rawRequest(base, '/api/sources');
+    assert.equal(r.status, 500);
+    assert.equal(r.headers['content-security-policy'], CSP);
+    assert.equal(r.headers['x-content-type-options'], 'nosniff');
+    assert.deepEqual(JSON.parse(r.body), { error: 'internal error', code: 'INTERNAL' });
+    assert.equal(r.body.includes('secret'), false);
+  });
+});

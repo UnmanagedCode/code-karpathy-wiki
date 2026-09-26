@@ -80,6 +80,7 @@ export function lintSnapshot(snap, { now = new Date() } = {}) {
     now: now.toISOString(),
     staleAfterDays: STALE_AFTER_DAYS,
     rootIndex,
+    truncated: snap.truncated === true,
     counts: {
       deadLinks: deadLinks.length,
       ambiguousLinks: ambiguousLinks.length,

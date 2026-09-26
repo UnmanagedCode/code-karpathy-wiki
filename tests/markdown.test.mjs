@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parse } from '../src/markdown.js';
+import { parse, MAX_NESTING } from '../src/markdown.js';
 
 // Every node in an AST, blocks and inlines alike.
 function nodes(blocks) {
@@ -178,4 +178,79 @@ test('inlines: strong, em, del, escapes, snake_case untouched', () => {
 test('entities are not decoded in link destinations', () => {
   const { links } = parse('[x](&#106;avascript:alert(1))\n');
   assert.equal(links[0].href.startsWith('&#106;'), true);
+});
+
+const timed = (src) => {
+  const t = performance.now();
+  parse(src);
+  return performance.now() - t;
+};
+
+// Invariant (availability): inline parsing is amortized linear in the input
+// length — no unmatched delimiter rescans to the end of the input.
+test('inline parsing is amortized linear: 100k-char hostile delimiter runs each parse in under 1 s', () => {
+  const N = 100000;
+  const rep = (s, extra = '') => s.repeat(Math.ceil(N / s.length)) + extra;
+  const vectors = {
+    '[': rep('['),
+    '![': rep('!['),
+    '[x](': rep('[x]('),
+    '[a](': rep('[a]('),
+    '[[ … ]]': rep('[[', ']]'),
+    '[x](a (': rep('[x](a (', `)${' '.repeat(1000)}`),
+    '[x](a "': rep('[x](a "'),
+    '*a ': rep('*a '),
+    '_a ': rep('_a '),
+    '~~a ': rep('~~a '),
+    '**a ': rep('**a '),
+    '<!--': rep('<!--'),
+    '<a:': rep('<a:'),
+    'backtick runs of distinct lengths': Array.from({ length: 440 }, (_, i) => `${'`'.repeat(i + 1)}a`).join(''),
+  };
+  for (const [name, src] of Object.entries(vectors)) {
+    const ms = timed(src);
+    assert.ok(ms < 1000, `${name} (${src.length} chars) took ${ms.toFixed(0)} ms`);
+  }
+});
+
+// Invariant (availability): block parsing is linear too — comment-prefixed
+// lines do not copy the line array once per line.
+test('block parsing is linear: 100k lines each starting with a closed HTML comment parse in under 1 s', () => {
+  const src = '<!-- c -->a\n'.repeat(100000);
+  const ms = timed(src);
+  assert.ok(ms < 1000, `${ms.toFixed(0)} ms`);
+});
+
+// Invariant: the linear-time rewrite keeps link and emphasis semantics on ordinary input.
+test('linear-time inline scanning keeps link, title, paren and emphasis semantics', () => {
+  const { links, blocks } = parse('[a](x(1).md "t") [b](<y z.md>) [c](d\\).md) [[w|l]] *e [f](g.md)* `[[no]]` [h]( i.md \'tt\' )\n');
+  assert.deepEqual(links.map((l) => [l.form, l.href ?? l.ref, l.title]), [
+    ['md', 'x(1).md', 't'], ['md', 'y z.md', undefined], ['md', 'd).md', undefined],
+    ['wiki', 'w|l', undefined], ['md', 'g.md', undefined], ['md', 'i.md', 'tt'],
+  ]);
+  const em = nodes(blocks).find((n) => n.t === 'em');
+  assert.ok(em.c.some((n) => n.t === 'link'), 'link inside emphasis');
+});
+
+// Depth of the deepest nested block/inline chain.
+function depth(blocks) {
+  let max = 0;
+  const visit = (n, d) => {
+    if (Array.isArray(n)) { n.forEach((x) => visit(x, d)); return; }
+    if (!n || typeof n !== 'object') return;
+    max = Math.max(max, d);
+    for (const k of ['c', 'items']) if (n[k]) visit(n[k], d + 1);
+  };
+  visit(blocks, 0);
+  return max;
+}
+
+// Invariant: nesting depth is bounded; past MAX_NESTING the rest is emitted as text.
+test('nesting depth is bounded: 4000 nested list markers or 12000 quote markers parse, the rest kept as text', () => {
+  for (const src of [`${'- '.repeat(4000)}X`, `${'>'.repeat(12000)} x`, `${'*a '.repeat(20000)}${'b* '.repeat(20000)}`]) {
+    const { blocks } = parse(src);
+    assert.ok(depth(blocks) <= 3 * MAX_NESTING + 3, `depth ${depth(blocks)}`);
+    const all = texts(blocks);
+    assert.ok(all.includes('X') || all.includes('x') || all.includes('b'), 'content survives as text');
+  }
 });

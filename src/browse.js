@@ -34,6 +34,7 @@ function buildTree(snap) {
         path: rel,
         index: null,
         archived: isArchived(snap.source, rel),
+        error: snap.dirErrors.has(rel) ? 'READ_FAILED' : null,
         dirs: [],
         pages: [],
       });
@@ -85,6 +86,7 @@ async function page(params) {
     backlinks: (snap.backlinks.get(rel) ?? []).map((b) => ({ path: b, title: snap.pages.get(b).title })),
     archived: p.archived,
     truncated: p.truncated,
+    error: p.error,
     stale: staleEntry(p.frontmatter, new Date()) !== null,
     lowConfidence: isLowConfidence(p.frontmatter),
   });
@@ -98,7 +100,8 @@ const routes = {
   '/api/tree': async (params) => {
     const { source, err } = await sourceParam(params);
     if (err) return err;
-    return ok({ source: source.id, tree: buildTree(await loadSnapshot(source)) });
+    const snap = await loadSnapshot(source);
+    return ok({ source: source.id, tree: buildTree(snap), truncated: snap.truncated });
   },
   '/api/page': page,
   '/api/lint': async (params) => {

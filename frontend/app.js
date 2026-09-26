@@ -7,7 +7,7 @@ import { renderBlocks, pageHref, headingId } from './render.js';
 const DEFAULT_ROUTE = '#/page/orchestrator/index.md';
 const sidebar = document.getElementById('sidebar');
 const main = document.getElementById('main');
-const state = { sources: [], dirEls: [] };
+const state = { sources: [], rootIndex: new Map(), dirEls: [] };
 
 function el(tag, props = {}, children = []) {
   const e = document.createElement(tag);
@@ -61,15 +61,17 @@ function treeDir(source, node, depth) {
     open: depth === 1 && !node.archived,
     'data-dir': `${source}|${node.path}`,
   }, [
-    el('summary', {}, [label, node.archived && !node.path.startsWith('global/archive/')
-      ? el('span', { class: 'badge' }, ['archive — not in recall path']) : null]),
+    // Badge the archive root only, not every directory below it.
+    el('summary', {}, [label, node.archived && node.path === 'global/archive'
+      ? el('span', { class: 'badge' }, ['archive — not in recall path']) : null,
+    node.error ? el('span', { class: 'badge error' }, ['unreadable']) : null]),
     children,
   ]);
   state.dirEls.push(details);
   return details;
 }
 
-function sourceSection(source, tree, error) {
+function sourceSection(source, tree, error, truncated) {
   const head = el('div', { class: 'source-head' }, [
     tree?.index ? el('a', { href: pageHref(source.id, tree.index), class: 'source-label', 'data-page': `${source.id}|${tree.index}` }, [source.label])
       : el('span', { class: 'source-label' }, [source.label]),
@@ -84,7 +86,8 @@ function sourceSection(source, tree, error) {
       ...tree.pages.map((p) => el('li', {}, [el('a', { href: pageHref(source.id, p.path), 'data-page': `${source.id}|${p.path}` }, [p.name])])),
     ]);
   }
-  return el('section', { class: 'source', 'data-kind': source.kind }, [head, body]);
+  const cut = truncated ? el('p', { class: 'muted warn' }, ['Tree truncated: too many entries (symlink loops?).']) : null;
+  return el('section', { class: 'source', 'data-kind': source.kind }, [head, cut, body]);
 }
 
 function searchBox() {
@@ -107,12 +110,13 @@ async function loadSidebar() {
     return;
   }
   const trees = await Promise.all(state.sources.map((s) => api(`api/tree?source=${enc(s.id)}`)
-    .then((r) => ({ tree: r.tree }), (error) => ({ error }))));
+    .then((r) => ({ tree: r.tree, truncated: r.truncated }), (error) => ({ error }))));
+  state.rootIndex = new Map(state.sources.map((s, i) => [s.id, trees[i].tree?.index ?? null]));
   const refresh = el('button', { type: 'button', class: 'refresh', title: 'Reload the trees' }, ['↻']);
   refresh.addEventListener('click', () => { loadSidebar().then(route); });
   sidebar.replaceChildren(
     el('div', { class: 'side-top' }, [searchBox(), refresh]),
-    ...state.sources.map((s, i) => sourceSection(s, trees[i].tree, trees[i].error)),
+    ...state.sources.map((s, i) => sourceSection(s, trees[i].tree, trees[i].error, trees[i].truncated)),
     el('p', { class: 'muted foot' }, ['Read-only. Pages are re-read on each view; ↻ reloads the trees.']),
   );
 }
@@ -147,7 +151,8 @@ async function showPage(source, rel) {
     return;
   }
   const segs = rel.split('/');
-  const crumbs = [el('a', { href: pageHref(source, 'index.md') }, [labelOf(source)])];
+  const rootIndex = state.rootIndex.get(source);
+  const crumbs = [rootIndex ? el('a', { href: pageHref(source, rootIndex) }, [labelOf(source)]) : el('span', {}, [labelOf(source)])];
   segs.forEach((s) => crumbs.push(el('span', { class: 'sep' }, [' / ']), s));
   const fm = d.frontmatter ?? {};
   const chips = el('div', { class: 'chips' }, [
@@ -160,6 +165,7 @@ async function showPage(source, rel) {
     chips,
     d.archived ? el('div', { class: 'banner archived' }, ['Archived page — retired or superseded, not in the recall path.']) : null,
     d.truncated ? el('div', { class: 'banner' }, ['This page is larger than the display cap and has been cut short.']) : null,
+    d.error ? el('div', { class: 'banner error' }, [d.error === 'READ_FAILED' ? 'This page exists but could not be read.' : 'This page could not be parsed.']) : null,
     el('article', { class: 'md' }, renderBlocks(d.blocks, { source, onAnchor: scrollToAnchor })),
     el('section', { class: 'backlinks' }, [
       el('h2', {}, [`Backlinks (${d.backlinks.length})`]),
@@ -209,6 +215,7 @@ async function showHealth(source) {
   main.replaceChildren(
     el('h1', {}, [`Health — ${labelOf(source)}`]),
     el('p', { class: 'muted' }, [d.rootIndex ? `Root index: ${d.rootIndex}. ` : 'No root index.md. ', `Stale after ${d.staleAfterDays} days.`]),
+    d.truncated ? el('div', { class: 'banner' }, ['The walk hit its entry cap: these results cover only part of the tree.']) : null,
     counts,
     ...HEALTH_SECTIONS.map(([k, title, blurb, item]) => el('section', { id: `sec-${k}`, class: 'health' }, [
       el('h2', {}, [`${title} (${d[k].length})`]),

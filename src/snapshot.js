@@ -8,13 +8,40 @@ import { linkContext, resolveWiki, resolveHref } from './links.js';
 // A page over this is cut on a codepoint boundary and flagged `truncated`.
 export const MAX_PAGE_BYTES = 1024 * 1024;
 
+// Hard cap on directory entries visited per source per walk. Symlinked dirs
+// inside the root are followed, so a diamond of links can multiply logical
+// paths without a cycle; past the cap the snapshot is flagged `truncated`.
+export const MAX_WALK_ENTRIES = 20000;
+
+// Test seams, same style as projects.js: pass null to restore the default.
+let parseImpl = parse;
+export function _setParse(fn) {
+  parseImpl = fn ?? parse;
+}
+let maxWalkEntries = MAX_WALK_ENTRIES;
+export function _setMaxWalkEntries(n) {
+  maxWalkEntries = n ?? MAX_WALK_ENTRIES;
+}
+
 export function isArchived(source, rel) {
   return source.kind === 'orchestrator' && (rel === 'global/archive' || rel.startsWith('global/archive/'));
 }
 
-function parseEntry(text, rel, truncated = false) {
-  const { frontmatter, blocks, links, title } = parse(text, path.posix.basename(rel, '.md'));
-  return { text, lower: text.toLowerCase(), truncated, frontmatter, blocks, links, title };
+// Parsed content only — nothing derived from the path it was reached by, since
+// the cache is keyed by realpath and one file can have several logical paths.
+// `title` is the h1 or ''; buildSnapshot applies the basename fallback.
+// A parse that throws still yields an entry, flagged `error`.
+function parseEntry(text, truncated = false) {
+  try {
+    const { frontmatter, blocks, links, title } = parseImpl(text, '');
+    return { text, lower: text.toLowerCase(), truncated, frontmatter, blocks, links, title, error: null };
+  } catch {
+    return errorEntry('PARSE_FAILED');
+  }
+}
+
+function errorEntry(error) {
+  return { text: '', lower: '', truncated: false, frontmatter: {}, blocks: [], links: [], title: '', error };
 }
 
 // Snapshot from already-read pages: rel -> text (tests) or rel -> parsed entry
@@ -24,8 +51,8 @@ export function buildSnapshot(source, files, dirs) {
   const pages = new Map();
   const input = files instanceof Map ? files : new Map(Object.entries(files));
   for (const [rel, v] of [...input].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
-    const entry = typeof v === 'string' ? parseEntry(v, rel) : v;
-    pages.set(rel, { ...entry, archived: isArchived(source, rel), res: [] });
+    const entry = typeof v === 'string' ? parseEntry(v) : v;
+    pages.set(rel, { ...entry, title: entry.title || path.posix.basename(rel, '.md'), archived: isArchived(source, rel), res: [] });
   }
   const ctx = linkContext(source.kind, new Set(pages.keys()), dirs);
   const backlinks = new Map();
@@ -38,7 +65,7 @@ export function buildSnapshot(source, files, dirs) {
     }
   }
   const sortedBacklinks = new Map([...backlinks].map(([t, s]) => [t, [...s].sort()]));
-  return { source, pages, dirs: ctx.dirs, backlinks: sortedBacklinks };
+  return { source, pages, dirs: ctx.dirs, dirErrors: new Set(), backlinks: sortedBacklinks, truncated: false };
 }
 
 // A deep copy of a page's blocks with this snapshot's resolution merged into
@@ -55,25 +82,55 @@ export function annotatedBlocks(page) {
 
 // realpath -> {key, entry}: unchanged files (same mtime and size) are neither
 // re-read nor re-parsed. One slot per file, so it is bounded by the tree.
+// Error entries are not cached, so a transient failure clears on the next walk.
 const cache = new Map();
 
-async function readEntry(real, rel) {
-  const st = await fs.stat(real);
+// At most cap + 1 bytes (the extra byte lets truncateUtf8 see whether the cut
+// splits a codepoint), however large the file is or grows to.
+async function readBounded(real, cap) {
+  const fh = await fs.open(real, 'r');
+  try {
+    const chunks = [];
+    let total = 0;
+    while (total <= cap) {
+      const want = Math.min(64 * 1024, cap + 1 - total);
+      const buf = Buffer.allocUnsafe(want);
+      const { bytesRead } = await fh.read(buf, 0, want, total);
+      if (bytesRead === 0) break;
+      chunks.push(buf.subarray(0, bytesRead));
+      total += bytesRead;
+    }
+    return Buffer.concat(chunks, total);
+  } finally {
+    await fh.close();
+  }
+}
+
+async function readEntry(real, st) {
   const key = `${st.mtimeMs}|${st.size}`;
   const hit = cache.get(real);
   if (hit && hit.key === key) return hit.entry;
-  const buf = await fs.readFile(real);
+  let buf;
+  try {
+    buf = await readBounded(real, MAX_PAGE_BYTES);
+  } catch (e) {
+    if (e.code === 'ENOENT') return null;
+    return errorEntry('READ_FAILED');
+  }
   const entry = buf.length > MAX_PAGE_BYTES
-    ? parseEntry(truncateUtf8(buf, MAX_PAGE_BYTES), rel, true)
-    : parseEntry(buf.toString('utf8'), rel);
-  cache.set(real, { key, entry });
+    ? parseEntry(truncateUtf8(buf, MAX_PAGE_BYTES), true)
+    : parseEntry(buf.toString('utf8'));
+  if (!entry.error) cache.set(real, { key, entry });
   return entry;
 }
 
 // Walk the source on every call: dot-prefixed entries are skipped, symlinks
 // are followed only when their realpath stays under the root, and a directory
 // already on the current path (a cycle) is not re-entered. Page keys are the
-// logical rel paths, not realpaths.
+// logical rel paths, not realpaths. At most maxWalkEntries entries are visited;
+// which ones survive a truncated walk is unspecified. Only a vanished entry
+// (ENOENT) counts as absent: an unreadable page is kept with `error`, an
+// unreadable directory is recorded in dirErrors.
 export async function loadSnapshot(source) {
   let rootReal;
   try {
@@ -84,23 +141,30 @@ export async function loadSnapshot(source) {
   }
   const files = new Map();
   const dirs = new Set(['']);
+  const dirErrors = new Set();
+  let visited = 0;
+  let truncated = false;
 
   const walk = async (relDir, stack) => {
     let ents;
     try {
       ents = await fs.readdir(path.join(rootReal, relDir), { withFileTypes: true });
-    } catch {
+    } catch (e) {
+      if (e.code !== 'ENOENT') dirErrors.add(relDir);
       return;
     }
+    ents = ents.filter((e) => !e.name.startsWith('.')).sort((a, b) => (a.name < b.name ? -1 : 1));
     await Promise.all(ents.map(async (ent) => {
-      if (ent.name.startsWith('.')) return;
+      if (visited >= maxWalkEntries) { truncated = true; return; }
+      visited++;
       const rel = relDir === '' ? ent.name : `${relDir}/${ent.name}`;
       const real = await confinedRealpath(rootReal, rel);
       if (real === null || real === ESCAPES) return;
       let st;
       try {
         st = await fs.stat(real);
-      } catch {
+      } catch (e) {
+        if (e.code !== 'ENOENT' && ent.name.endsWith('.md')) files.set(rel, errorEntry('READ_FAILED'));
         return;
       }
       if (st.isDirectory()) {
@@ -108,16 +172,15 @@ export async function loadSnapshot(source) {
         dirs.add(rel);
         await walk(rel, [...stack, real]);
       } else if (st.isFile() && ent.name.endsWith('.md')) {
-        try {
-          files.set(rel, await readEntry(real, rel));
-        } catch {
-          // Vanished or unreadable between readdir and read: not a page.
-        }
+        const entry = await readEntry(real, st);
+        if (entry) files.set(rel, entry);
       }
     }));
   };
   await walk('', [rootReal]);
   const snap = buildSnapshot(source, files, dirs);
   snap.rootReal = rootReal;
+  snap.dirErrors = dirErrors;
+  snap.truncated = truncated;
   return snap;
 }

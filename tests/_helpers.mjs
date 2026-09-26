@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { _setProjectFetcher } from '../src/projects.js';
+import { _setParse, _setMaxWalkEntries } from '../src/snapshot.js';
 
 // Fresh isolated wiki per test. Setting PROJECTS_ROOT is enough: every path
 // helper reads it at call time. Never touches the real .conduct/ tree.
@@ -30,6 +31,8 @@ export function resetEnv() {
   delete process.env.PROJECTS_ROOT;
   delete process.env.CONDUCTOR_URL;
   _setProjectFetcher(null);
+  _setParse(null);
+  _setMaxWalkEntries(null);
 }
 
 // Stub the host project list. Returns a call counter so a test can assert the

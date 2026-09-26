@@ -77,9 +77,19 @@ Project roots come from the host's `/api/projects` row `path` (`localProjectWiki
 
 ## Snapshot and parse cache
 
-`loadSnapshot(source)` walks the source on **every** request — no watchers, always fresh. A module-level cache keyed by realpath holds `{mtimeMs|size, parsed entry}`, so an unchanged file is neither re-read nor re-parsed, and the cache is bounded by the number of files. Cached entries are shared across snapshots and never mutated: each snapshot resolves links into its own `page.res[]`, indexed by the link node's `i`, and `annotatedBlocks(page)` deep-copies the blocks merging each resolution into its link node for `/api/page`. Backlinks are the sorted, deduped set of pages with a resolved `page` link to the target, excluding self.
+`loadSnapshot(source)` walks the source on **every** request — no watchers, always fresh. A module-level cache keyed by realpath holds `{mtimeMs|size, parsed entry}`, so an unchanged file is neither re-read nor re-parsed, and the cache is bounded by the number of files. A cache entry holds only what the file's bytes determine: the h1 `title` or `''`, never anything derived from a path, because one file can be reached by several logical paths; `buildSnapshot` applies the basename fallback per logical path. Cached entries are shared across snapshots and never mutated: each snapshot resolves links into its own `page.res[]`, indexed by the link node's `i`, and `annotatedBlocks(page)` deep-copies the blocks merging each resolution into its link node for `/api/page`. Backlinks are the sorted, deduped set of pages with a resolved `page` link to the target, excluding self.
 
-Files over `MAX_PAGE_BYTES` are cut with `truncateUtf8` (shared with `read_index`) and flagged `truncated`.
+Reads are bounded before they happen: `stat` first, then `readBounded` reads at most `MAX_PAGE_BYTES + 1` bytes through `fs.open`/`read` (the extra byte lets `truncateUtf8`, shared with `read_index`, see whether the cut splits a codepoint), so file size never drives memory. Over the cap the page is cut and flagged `truncated`.
+
+Failures are never presented as absence. Only `ENOENT` (the entry vanished mid-walk) drops an entry. A page that fails to read becomes an error entry `READ_FAILED`; a parse that throws becomes `PARSE_FAILED`; both are listed and served (empty body, basename title) and are not cached, so a transient failure clears on the next walk. A directory whose `readdir` fails is recorded in `snap.dirErrors` and shows as `error: "READ_FAILED"` on its tree node.
+
+The walk visits at most `MAX_WALK_ENTRIES` directory entries per source. The cycle check covers only the current path (so a contained symlink to a sibling directory is still followed), which lets a diamond of symlinked directories multiply logical paths without a cycle; the cap bounds that. Hitting it sets `snap.truncated`, reported by `/api/tree` and `/api/lint`. Entries are processed in name order per directory, but which ones survive a truncated walk is unspecified.
+
+## Parser complexity and nesting
+
+The inline parser (`src/markdown.js`) is amortized linear in its input. Every delimiter search is answered from tables built once per inline run (`cx`): backtick runs grouped by length (binary search for a closer), bracket pairs from one stack pass, and for link destinations a paren prefix-sum with a next-smaller-element table plus next-whitespace/next-quote arrays, so a rejected `[…](…` costs O(1). `findSeq` (e.g. `]]`) and emphasis closer searches go through `memoScan`, which records each query's answer on every position it walked, so no position is re-walked per delimiter. Only an accepted construct pays for slicing its content. `<!--` closers share one cached `indexOf`. Block comments that leave trailing text rewrite the line in place rather than copying the line array.
+
+Block quotes and list items recurse once per level, and emphasis recurses once per level; both stop at `MAX_NESTING`. Past it, a block's remaining lines become one plain-text paragraph and emphasis delimiters stay literal, so no page can exhaust the stack.
 
 ## Why the renderer is AST -> DOM
 
@@ -102,4 +112,6 @@ Browser test patterns:
 - `treeDigest(dir)` (`tests/_helpers.mjs`) — sorted lstat + sha256 fingerprint of a tree. The no-write test sweeps every browser route and static path with GET and every write method and requires identical digests before and after.
 - `freshProjectWiki(root, name, files)` builds `<root>/<name>/.wiki/` and returns the host row to feed `useProjects`.
 - `tests/lint.test.mjs` has a **live-shaped fixture** (root → `global/` → families + `archive/`, `workspaces/W/`, `projects/P/`, page-relative `[[../fam/x]]`, backticked syntax examples) that must lint clean — the false-positive tripwire.
+- `_setParse(fn)` and `_setMaxWalkEntries(n)` (`src/snapshot.js`) are seams in the `_setProjectFetcher` style — pass `null` to restore; `resetEnv()` resets both. They let a test observe what the parser receives, force a parse failure, or trip the walk cap on a small symlink diamond.
+- Parser availability tests time hostile 100k-character delimiter runs against a generous bound, so a quadratic regression fails the suite rather than slowing it.
 - Tests never touch the real `.conduct/` tree.

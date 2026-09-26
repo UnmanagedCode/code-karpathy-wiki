@@ -86,6 +86,8 @@ code-karpathy-wiki/
 | Browser page cap | `MAX_PAGE_BYTES` 1 MiB, flagged `truncated` |
 | Stale after | `STALE_AFTER_DAYS` 90 days since front-matter `updated` |
 | Search results cap | `MAX_RESULTS` 100, flagged `truncated` |
+| Walk cap | `MAX_WALK_ENTRIES` 20000 entries per source, flagged `truncated` on tree and lint |
+| Markdown nesting | `MAX_NESTING` 32 levels; deeper content is plain text |
 | Browser mount | `/plugins/code-wiki/` under the conductor; every frontend URL is relative |
 
 ## Known limitations
@@ -97,7 +99,7 @@ code-karpathy-wiki/
 - The browser confines every walk entry and read by realpath (a symlink resolving outside a wiki root is omitted, or `403 PATH_ESCAPES`); `read_index` still does not — its containment assert guards against argument-driven traversal only. A swap between the realpath check and the read (TOCTOU) is accepted: exploiting either needs write access to the wiki tree.
 - Project wikis are listed only for projects on the `local` system, and only when `CONDUCTOR_URL` is set.
 - No live reload: pages are re-read on each view, the sidebar trees on ↻ or page reload.
-- The markdown renderer is a subset: no indented code blocks, setext headings, reference-style links or images (an image shows as a link to its source). Raw HTML is shown as literal text.
+- The markdown renderer is a subset: no indented code blocks, setext headings, reference-style links or images (an image shows as a link to its source). Raw HTML is shown as literal text. Leading tabs become 4-column stops (code blocks included), ordered lists always number from 1, and nesting past `MAX_NESTING` is plain text.
 - The page runs in an unsandboxed iframe on the host's origin, and the host has no auth, so the AST-only renderer plus the page's CSP are the XSS boundary.
 - Search is AND-of-substrings over raw page text, sorted by title match then hit count — not ranked by relevance.
 

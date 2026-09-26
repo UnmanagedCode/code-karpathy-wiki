@@ -125,7 +125,8 @@ test('absent orchestrator root -> empty tree', async () => {
     process.env.PROJECTS_ROOT = `${root}/nope`;
     const { status, body } = await get('/api/tree', { source: 'orchestrator' });
     assert.equal(status, 200);
-    assert.deepEqual(body.tree, { name: '', path: '', index: null, archived: false, dirs: [], pages: [] });
+    assert.deepEqual(body.tree, { name: '', path: '', index: null, archived: false, error: null, dirs: [], pages: [] });
+    assert.equal(body.truncated, false);
   });
 });
 

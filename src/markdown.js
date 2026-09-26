@@ -8,6 +8,7 @@
 //
 // Deliberately unsupported: indented code blocks, setext headings,
 // reference-style links, images (an image becomes a link labelled by its alt).
+// Leading tabs expand to the next multiple of 4 columns, fenced code included.
 
 const FENCE_RE = /^( {0,3})(`{3,}|~{3,})(.*)$/;
 const ATX_RE = /^ {0,3}(#{1,6})(?=[ \t]|$)(.*)$/;
@@ -20,6 +21,10 @@ const PUNCT_RE = /[!-/:-@[-`{-~]/;
 const ENTITY_RE = /^&(?:#(\d{1,7})|#[xX]([0-9a-fA-F]{1,6})|(amp|lt|gt|quot|apos|nbsp));/;
 const NAMED = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: '\u00a0' };
 const WORD_RE = /[\p{L}\p{N}]/u;
+
+// Deepest block (quote/list) or inline (emphasis) nesting parsed as structure.
+// Past it the remaining content is plain text, so no page can exhaust the stack.
+export const MAX_NESTING = 32;
 
 export function parse(text, fallbackTitle = '') {
   const lines = String(text).replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').split('\n');
@@ -34,7 +39,7 @@ export function parse(text, fallbackTitle = '') {
   }
   const recs = lines.slice(skip).map((s, i) => ({ s: expandTabs(s), n: skip + i + 1 }));
   const st = { slugs: new Map(), links: [] };
-  const blocks = parseBlocks(recs, st);
+  const blocks = parseBlocks(recs, st, 0);
   const h1 = blocks.find((b) => b.t === 'h' && b.level === 1);
   const title = (h1 && plainText(h1.c).trim()) || fallbackTitle;
   return { frontmatter, blocks, title, links: st.links };
@@ -115,7 +120,11 @@ function startsBlock(recs, i) {
   return isTableStart(recs, i);
 }
 
-function parseBlocks(recs, st) {
+function parseBlocks(recs, st, depth) {
+  if (depth > MAX_NESTING) {
+    const v = recs.map((r) => r.s.trim()).filter(Boolean).join(' ');
+    return v ? [{ t: 'p', c: [{ t: 'text', v }] }] : [];
+  }
   const out = [];
   let i = 0;
   while (i < recs.length) {
@@ -135,7 +144,8 @@ function parseBlocks(recs, st) {
       }
       if (close < 0) break;
       const rest = recs[k].s.slice(close + 3);
-      if (isBlank(rest)) { i = k + 1; } else { recs = [...recs.slice(0, k), { s: rest, n: recs[k].n }, ...recs.slice(k + 1)]; i = k; }
+      // In place: recs is always this call's own array.
+      if (isBlank(rest)) { i = k + 1; } else { recs[k] = { s: rest, n: recs[k].n }; i = k; }
       continue;
     }
 
@@ -178,13 +188,13 @@ function parseBlocks(recs, st) {
         else break;
         i++;
       }
-      out.push({ t: 'quote', c: parseBlocks(inner, st) });
+      out.push({ t: 'quote', c: parseBlocks(inner, st, depth + 1) });
       continue;
     }
 
     const lm = listMarker(s);
     if (lm) {
-      const r = parseList(recs, i, lm, st);
+      const r = parseList(recs, i, lm, st, depth);
       out.push(r.node);
       i = r.next;
       continue;
@@ -222,7 +232,7 @@ function parseBlocks(recs, st) {
   return out;
 }
 
-function parseList(recs, i, first, st) {
+function parseList(recs, i, first, st, depth) {
   const node = { t: first.ordered ? 'ol' : 'ul', tight: true, items: [] };
   if (first.ordered) node.start = first.start;
   let gapBeforeNext = false;
@@ -256,7 +266,7 @@ function parseList(recs, i, first, st) {
     while (lines.length > 1 && isBlank(lines[lines.length - 1].s)) { lines.pop(); trailing++; }
     if (lines.some((l) => isBlank(l.s))) node.tight = false;
     gapBeforeNext = trailing > 0;
-    node.items.push(parseBlocks(lines, st));
+    node.items.push(parseBlocks(lines, st, depth + 1));
   }
   return { node, next: i };
 }
@@ -285,6 +295,11 @@ function uniqueSlug(text, st) {
 }
 
 // ---- inlines ----------------------------------------------------------------
+//
+// Every delimiter search is answered from tables built at most once per inline
+// run (cx.S) — backtick runs by length, bracket pairs, destination/title
+// scanners — or memoised along the path it walked, so no unmatched delimiter
+// rescans the rest of the input: parsing stays amortized linear in its length.
 
 function inlines(recs, st) {
   const parts = [];
@@ -306,7 +321,7 @@ function inlines(recs, st) {
     }
     return recs[lo].n;
   };
-  return inl(S, 0, S.length, { st, lineOf }, false);
+  return inl(0, S.length, { S, st, lineOf, memo: new Map() }, false, 0);
 }
 
 function runLen(S, i, to, ch) {
@@ -315,36 +330,129 @@ function runLen(S, i, to, ch) {
   return j - i;
 }
 
-// Start of the next backtick run of exactly n, or -1.
-function backtickClose(S, from, to, n) {
-  let j = from;
-  while (j < to) {
-    if (S[j] === '`') {
-      const r = runLen(S, j, to, '`');
-      if (r === n) return j;
-      j += r;
-    } else j++;
+// Maximal backtick runs grouped by length: len -> ascending start positions.
+function backtickRuns(cx) {
+  if (cx.runs) return cx.runs;
+  const { S } = cx;
+  const runs = new Map();
+  for (let i = S.indexOf('`'); i >= 0; i = S.indexOf('`', i)) {
+    const n = runLen(S, i, S.length, '`');
+    if (!runs.has(n)) runs.set(n, []);
+    runs.get(n).push(i);
+    i += n;
   }
-  return -1;
+  cx.runs = runs;
+  return runs;
 }
 
-// Index of `seq` at or after `from`, skipping escapes and whole code spans.
-function findSeq(S, from, to, seq) {
+// Start of the first backtick run of exactly n starting at or after `from`
+// and ending by `to`, or -1.
+function backtickClose(cx, from, to, n) {
+  const list = backtickRuns(cx).get(n);
+  if (!list) return -1;
+  let lo = 0;
+  let hi = list.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (list[mid] < from) lo = mid + 1; else hi = mid;
+  }
+  return lo < list.length && list[lo] + n <= to ? list[lo] : -1;
+}
+
+// Skip a whole code span (or an unmatched run) starting at j.
+function skipCode(cx, j) {
+  const n = runLen(cx.S, j, cx.S.length, '`');
+  const cl = backtickClose(cx, j + n, cx.S.length, n);
+  return cl >= 0 ? cl + n : j + n;
+}
+
+// Memoised forward scan: every position visited while answering one query
+// records that query's answer, so later queries starting on the same path
+// return in O(1). `step(j)` returns the answer at j, or the next j to visit.
+function memoScan(cx, key, from, step) {
+  let memo = cx.memo.get(key);
+  if (!memo) { memo = new Int32Array(cx.S.length + 1).fill(-2); cx.memo.set(key, memo); }
+  const path = [];
   let j = from;
-  while (j < to) {
+  let res;
+  for (;;) {
+    if (j >= cx.S.length) { res = -1; break; }
+    if (memo[j] !== -2) { res = memo[j]; break; }
+    path.push(j);
+    const r = step(j);
+    if (r.hit !== undefined) { res = r.hit; break; }
+    j = r.next;
+  }
+  for (const p of path) memo[p] = res;
+  return res;
+}
+
+// Index of `seq` at or after `from` (ending by `to`), skipping escapes and whole code spans.
+function findSeq(cx, from, to, seq) {
+  const { S } = cx;
+  const k = memoScan(cx, `seq:${seq}`, from, (j) => {
+    const c = S[j];
+    if (c === '\\') return { next: j + 2 };
+    if (c === '`') return { next: skipCode(cx, j) };
+    if (S.startsWith(seq, j)) return { hit: j };
+    return { next: j + 1 };
+  });
+  return k >= 0 && k + seq.length <= to ? k : -1;
+}
+
+// Tables for link parsing, built once per inline run on first use.
+function linkTables(cx) {
+  if (cx.T) return cx.T;
+  const { S } = cx;
+  const n = S.length;
+  // Bracket pairs, skipping escapes and code spans like the scan they replace.
+  const match = new Int32Array(n).fill(-1);
+  const stack = [];
+  for (let j = 0; j < n;) {
     const c = S[j];
     if (c === '\\') { j += 2; continue; }
-    if (c === '`') {
-      const n = runLen(S, j, to, '`');
-      const cl = backtickClose(S, j + n, to, n);
-      j = cl >= 0 ? cl + n : j + n;
-      continue;
-    }
-    if (j + seq.length <= to && S.startsWith(seq, j)) return j;
+    if (c === '`') { j = skipCode(cx, j); continue; }
+    if (c === '[') stack.push(j);
+    else if (c === ']' && stack.length) match[stack.pop()] = j;
     j++;
   }
-  return -1;
+  // Destination/title scanning: `\` + punctuation escapes one char.
+  const escaped = new Uint8Array(n + 1);
+  for (let j = 0; j < n; j++) {
+    if (S[j] === '\\' && j + 1 < n && PUNCT_RE.test(S[j + 1])) { escaped[j + 1] = 1; j++; }
+  }
+  // P[j] = unescaped '(' minus ')' before j; a destination starting at k ends
+  // at the first ')' taking P below P[k] (nextDrop), or at whitespace/control.
+  const P = new Int32Array(n + 1);
+  for (let j = 0; j < n; j++) {
+    const v = escaped[j] ? 0 : S[j] === '(' ? 1 : S[j] === ')' ? -1 : 0;
+    P[j + 1] = P[j] + v;
+  }
+  const nextDrop = new Int32Array(n + 1).fill(-1);
+  const mono = [];
+  for (let j = n; j >= 0; j--) {
+    while (mono.length && P[mono[mono.length - 1]] >= P[j]) mono.pop();
+    nextDrop[j] = mono.length ? mono[mono.length - 1] : -1;
+    mono.push(j);
+  }
+  const nextStop = new Int32Array(n + 1);
+  const nextNonWs = new Int32Array(n + 1);
+  const nextBad = new Int32Array(n + 1);
+  const nextQ = { '"': new Int32Array(n + 1), "'": new Int32Array(n + 1), ')': new Int32Array(n + 1) };
+  nextStop[n] = n; nextNonWs[n] = n; nextBad[n] = n;
+  for (const q of Object.values(nextQ)) q[n] = n;
+  for (let j = n - 1; j >= 0; j--) {
+    const c = S[j];
+    nextStop[j] = c <= ' ' ? j : nextStop[j + 1];
+    nextNonWs[j] = (c === ' ' || c === '\n') ? nextNonWs[j + 1] : j;
+    nextBad[j] = (c === '[' || c === ']' || c === '\n' || c === '`') ? j : nextBad[j + 1];
+    for (const [qc, arr] of Object.entries(nextQ)) arr[j] = (c === qc && !escaped[j]) ? j : arr[j + 1];
+  }
+  cx.T = { match, P, nextDrop, nextStop, nextNonWs, nextBad, nextQ };
+  return cx.T;
 }
+
+const unescapePunct = (s) => s.replace(/\\([!-/:-@[-`{-~])/g, '$1');
 
 function pushText(out, v) {
   const last = out[out.length - 1];
@@ -359,7 +467,19 @@ function addLink(cx, node, pos) {
   return node;
 }
 
-function inl(S, from, to, cx, noLinks) {
+// Next `-->` at or after `from`; one cached answer serves every later query.
+function commentClose(cx, from) {
+  const c = cx.comment;
+  if (c && c.from <= from && (c.at === -1 || c.at >= from)) return c.at;
+  const at = cx.S.indexOf('-->', from);
+  cx.comment = { from, at };
+  return at;
+}
+
+const AUTO_STICKY = new RegExp(AUTO_RE.source.slice(1), 'y');
+
+function inl(from, to, cx, noLinks, depth) {
+  const { S } = cx;
   const out = [];
   let buf = '';
   const flush = () => { if (buf) { pushText(out, buf); buf = ''; } };
@@ -372,7 +492,7 @@ function inl(S, from, to, cx, noLinks) {
 
     if (ch === '`') {
       const n = runLen(S, i, to, '`');
-      const cl = backtickClose(S, i + n, to, n);
+      const cl = backtickClose(cx, i + n, to, n);
       if (cl >= 0) {
         flush();
         let v = S.slice(i + n, cl).replace(/\n/g, ' ');
@@ -388,10 +508,15 @@ function inl(S, from, to, cx, noLinks) {
 
     if (ch === '<') {
       if (S.startsWith('<!--', i)) {
-        const e = S.indexOf('-->', i + 4);
+        const e = commentClose(cx, i + 4);
         if (e >= 0 && e + 3 <= to) { i = e + 3; continue; }
       }
-      const m = noLinks ? null : AUTO_RE.exec(S.slice(i, Math.min(to, i + 4096)));
+      let m = null;
+      if (!noLinks) {
+        AUTO_STICKY.lastIndex = i;
+        m = AUTO_STICKY.exec(S);
+        if (m && i + m[0].length > to) m = null;
+      }
       if (m) {
         flush();
         out.push(addLink(cx, { t: 'link', form: 'auto', raw: m[0], href: m[1], c: [{ t: 'text', v: m[1] }] }, i));
@@ -404,24 +529,26 @@ function inl(S, from, to, cx, noLinks) {
     }
 
     if (!noLinks && ch === '[' && S[i + 1] === '[') {
-      const cl = findSeq(S, i + 2, to, ']]');
-      const inner = cl >= 0 ? S.slice(i + 2, cl) : '';
-      if (cl >= 0 && inner.trim() !== '' && !/[[\]\n`]/.test(inner)) {
-        flush();
-        const bar = inner.indexOf('|');
-        const label = bar >= 0 ? inner.slice(bar + 1).trim() : inner.trim();
-        out.push(addLink(cx, { t: 'link', form: 'wiki', raw: S.slice(i, cl + 2), ref: inner, c: [{ t: 'text', v: label || inner.trim() }] }, i));
-        i = cl + 2;
-        continue;
+      const cl = findSeq(cx, i + 2, to, ']]');
+      if (cl >= 0 && linkTables(cx).nextBad[i + 2] >= cl) {
+        const inner = S.slice(i + 2, cl);
+        if (inner.trim() !== '') {
+          flush();
+          const bar = inner.indexOf('|');
+          const label = bar >= 0 ? inner.slice(bar + 1).trim() : inner.trim();
+          out.push(addLink(cx, { t: 'link', form: 'wiki', raw: S.slice(i, cl + 2), ref: inner, c: [{ t: 'text', v: label || inner.trim() }] }, i));
+          i = cl + 2;
+          continue;
+        }
       }
     }
 
     if (!noLinks && (ch === '[' || (ch === '!' && S[i + 1] === '['))) {
       const img = ch === '!';
-      const r = mdLink(S, img ? i + 1 : i, to);
+      const r = mdLink(cx, img ? i + 1 : i, to);
       if (r) {
         flush();
-        const label = inl(S, r.labelFrom, r.labelTo, cx, true);
+        const label = inl(r.labelFrom, r.labelTo, cx, true, depth);
         const node = { t: 'link', form: 'md', raw: S.slice(i, r.end), href: r.href, c: img ? [{ t: 'text', v: plainText(label) }] : label };
         if (r.title !== undefined) node.title = r.title;
         out.push(addLink(cx, node, i));
@@ -434,7 +561,7 @@ function inl(S, from, to, cx, noLinks) {
     }
 
     if (ch === '*' || ch === '_' || ch === '~') {
-      const r = emphasis(S, i, to, cx, noLinks);
+      const r = depth < MAX_NESTING ? emphasis(cx, i, to, noLinks, depth) : null;
       if (r) { flush(); out.push(r.node); i = r.end; continue; }
       const n = runLen(S, i, to, ch);
       buf += S.slice(i, i + n);
@@ -464,71 +591,65 @@ function inl(S, from, to, cx, noLinks) {
   return out;
 }
 
-// [label](dest "title") starting at S[i] === '['. Destinations are never entity-decoded.
-function mdLink(S, i, to) {
-  let depth = 0;
-  let j = i;
-  for (; j < to; j++) {
-    const c = S[j];
-    if (c === '\\') { j++; continue; }
-    if (c === '`') {
-      const n = runLen(S, j, to, '`');
-      const cl = backtickClose(S, j + n, to, n);
-      j = (cl >= 0 ? cl + n : j + n) - 1;
-      continue;
-    }
-    if (c === '[') depth++;
-    else if (c === ']' && --depth === 0) break;
-  }
-  if (j >= to || S[j + 1] !== '(') return null;
-  const labelTo = j;
-  let k = j + 2;
-  const skipWs = () => { while (k < to && (S[k] === ' ' || S[k] === '\n')) k++; };
-  skipWs();
-  let href = '';
+// [label](dest "title") starting at S[i] === '['. O(1) to reject, via linkTables;
+// only an accepted link pays for slicing its destination and title.
+// Destinations are never entity-decoded.
+function mdLink(cx, i, to) {
+  const { S } = cx;
+  const T = linkTables(cx);
+  const labelTo = T.match[i];
+  if (labelTo < 0 || labelTo + 1 >= to || S[labelTo + 1] !== '(') return null;
+  let k = T.nextNonWs[labelTo + 2];
+  if (k >= to) return null;
+  let href;
+  let e;
   if (S[k] === '<') {
-    k++;
-    while (k < to && S[k] !== '>' && S[k] !== '<' && S[k] !== '\n') {
-      if (S[k] === '\\' && PUNCT_RE.test(S[k + 1] ?? '')) { href += S[k + 1]; k += 2; continue; }
-      href += S[k++];
-    }
-    if (S[k] !== '>') return null;
-    k++;
+    let j = k + 1;
+    while (j < to && S[j] !== '>' && S[j] !== '<' && S[j] !== '\n') j += (S[j] === '\\' && PUNCT_RE.test(S[j + 1] ?? '')) ? 2 : 1;
+    if (j >= to || S[j] !== '>') return null;
+    href = unescapePunct(S.slice(k + 1, j));
+    e = j + 1;
   } else {
-    let par = 0;
-    while (k < to) {
-      const c = S[k];
-      if (c === '\\' && PUNCT_RE.test(S[k + 1] ?? '')) { href += S[k + 1]; k += 2; continue; }
-      if (c === ' ' || c === '\n' || c < ' ') break;
-      if (c === '(') par++;
-      if (c === ')') { if (par === 0) break; par--; }
-      href += c;
-      k++;
-    }
-    if (par !== 0) return null;
+    const drop = T.nextDrop[k];
+    const close = drop >= 0 ? drop - 1 : Infinity;
+    e = Math.min(T.nextStop[k], close, to);
+    if (e !== close && T.P[e] !== T.P[k]) return null;
+    href = unescapePunct(S.slice(k, e));
   }
-  const beforeTitle = k;
-  skipWs();
+  k = T.nextNonWs[e];
   let title;
   const q = S[k];
-  if (k > beforeTitle && (q === '"' || q === "'" || q === '(')) {
-    const qc = q === '(' ? ')' : q;
-    let t = '';
-    k++;
-    while (k < to && S[k] !== qc) {
-      if (S[k] === '\\' && PUNCT_RE.test(S[k + 1] ?? '')) { t += S[k + 1]; k += 2; continue; }
-      t += S[k++];
-    }
-    if (S[k] !== qc) return null;
-    k++;
-    title = t;
-    skipWs();
+  if (k > e && k < to && (q === '"' || q === "'" || q === '(')) {
+    const close = T.nextQ[q === '(' ? ')' : q][k + 1];
+    if (close >= to) return null;
+    const after = T.nextNonWs[close + 1];
+    if (after >= to || S[after] !== ')') return null;
+    title = unescapePunct(S.slice(k + 1, close));
+    k = after;
   }
-  if (S[k] !== ')') return null;
+  if (k >= to || S[k] !== ')') return null;
   return { labelFrom: i + 1, labelTo, href, title, end: k + 1 };
 }
 
-function emphasis(S, i, to, cx, noLinks) {
+// First acceptable closer for delimiter c×len at or after j: memoised per
+// candidate, so rejected candidates are never re-examined by a later opener.
+function closerFrom(cx, j, c, len) {
+  const { S } = cx;
+  const delim = c.repeat(len);
+  return memoScan(cx, `emph:${delim}`, j, (p) => {
+    const k = findSeq(cx, p, S.length, delim);
+    if (k < 0) return { hit: -1 };
+    if (k !== p) return { next: k };
+    if (len === 1 && S[k + 1] === c) return { next: k + runLen(S, k, S.length, c) };
+    const after = S[k + len];
+    const okPrev = !/\s/.test(S[k - 1]);
+    const okAfter = c !== '_' || !(after && WORD_RE.test(after));
+    return okPrev && okAfter ? { hit: k } : { next: k + 1 };
+  });
+}
+
+function emphasis(cx, i, to, noLinks, depth) {
+  const { S } = cx;
   const c = S[i];
   let len;
   let kind;
@@ -543,16 +664,8 @@ function emphasis(S, i, to, cx, noLinks) {
   const open = i + len;
   if (open >= to || /\s/.test(S[open])) return null;
   if (c === '_' && i > 0 && WORD_RE.test(S[i - 1])) return null;
-  const delim = c.repeat(len);
-  let j = open;
-  for (;;) {
-    const k = findSeq(S, j, to, delim);
-    if (k < 0) return null;
-    if (len === 1 && S[k + 1] === c) { j = k + runLen(S, k, to, c); continue; }
-    const after = S[k + len];
-    const okPrev = !/\s/.test(S[k - 1]);
-    const okAfter = c !== '_' || !(after && WORD_RE.test(after));
-    if (k > open && okPrev && okAfter) return { node: { t: kind, c: inl(S, open, k, cx, noLinks) }, end: k + len };
-    j = k + 1;
-  }
+  let k = closerFrom(cx, open, c, len);
+  if (k === open) k = closerFrom(cx, open + 1, c, len);
+  if (k < 0 || k + len > to) return null;
+  return { node: { t: kind, c: inl(open, k, cx, noLinks, depth + 1) }, end: k + len };
 }

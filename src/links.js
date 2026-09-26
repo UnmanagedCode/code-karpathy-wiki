@@ -105,6 +105,8 @@ export function resolveWiki(ref, fromRel, ctx) {
 export function resolveHref(href, fromRel, ctx) {
   const raw = String(href ?? '');
   const clean = raw.replace(/[\x00-\x20\x7f]/g, '');
+  // An empty destination names nothing: inert, and not a health item.
+  if (clean === '') return { kind: 'outside' };
   const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(clean);
   if (scheme) {
     const s = scheme[1].toLowerCase();

@@ -11,7 +11,7 @@ import { serveAsset } from './src/static.js';
 const DEFAULT_PORT = 7200;
 const MAX_BODY_BYTES = 256 * 1024;
 
-// Every browser response (API and static) carries these. The page runs in an
+// Every response carries these (browser, health, MCP, errors). The page runs in an
 // unsandboxed same-origin host iframe, so the CSP backs up the AST-only
 // renderer: no inline script or style, and nothing loaded from elsewhere.
 const SECURITY_HEADERS = {
@@ -19,14 +19,9 @@ const SECURITY_HEADERS = {
   'content-security-policy': "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
 };
 
-function sendBrowser(res, status, obj) {
-  for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.setHeader(k, v);
-  return send(res, status, obj);
-}
-
 function send(res, status, obj) {
   const buf = Buffer.from(JSON.stringify(obj));
-  res.writeHead(status, { 'content-type': 'application/json', 'content-length': buf.length });
+  res.writeHead(status, { ...SECURITY_HEADERS, 'content-type': 'application/json', 'content-length': buf.length });
   res.end(buf);
 }
 
@@ -57,7 +52,14 @@ function readBody(req) {
 
 async function route(req, res) {
   // Parse the URL rather than comparing req.url: it carries the query string.
-  const { pathname, searchParams } = new URL(req.url, 'http://localhost');
+  let url;
+  try {
+    url = new URL(req.url, 'http://localhost');
+  } catch {
+    req.resume();
+    return send(res, 400, { error: 'malformed request URL', code: 'URL_INVALID' });
+  }
+  const { pathname, searchParams } = url;
 
   if (pathname === '/api/health') {
     if (req.method !== 'GET' && req.method !== 'HEAD') {
@@ -100,24 +102,25 @@ async function route(req, res) {
   // Everything else is the read-only browser surface: there is no write route.
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     res.setHeader('allow', 'GET, HEAD');
-    return sendBrowser(res, 405, { error: 'method not allowed' });
+    return send(res, 405, { error: 'method not allowed' });
   }
 
   const api = await browse.handle(pathname, searchParams);
-  if (api) return sendBrowser(res, api.status, api.body);
+  if (api) return send(res, api.status, api.body);
 
   const asset = await serveAsset(pathname);
   if (asset) {
     res.writeHead(asset.status, { ...SECURITY_HEADERS, ...asset.headers });
     return res.end(asset.body);
   }
-  return sendBrowser(res, 404, { error: 'not found' });
+  return send(res, 404, { error: 'not found' });
 }
 
 export function createServer() {
   return http.createServer((req, res) => {
-    route(req, res).catch((e) => {
-      if (!res.headersSent) send(res, 500, { error: e.message });
+    // Never echo e.message: it can carry a filesystem path.
+    route(req, res).catch(() => {
+      if (!res.headersSent) send(res, 500, { error: 'internal error', code: 'INTERNAL' });
       else res.end();
     });
   });

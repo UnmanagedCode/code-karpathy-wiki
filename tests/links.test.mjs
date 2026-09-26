@@ -144,3 +144,13 @@ test('http(s) -> external; #frag -> anchor', () => {
   assert.deepEqual(resolveHref('HTTP://e.example', 'index.md', ctx), { kind: 'external', href: 'HTTP://e.example' });
   assert.deepEqual(resolveHref('#sec', 'index.md', ctx), { kind: 'anchor', href: '#sec' });
 });
+
+// Invariant: an empty md destination names nothing — inert, and never a dead-link health item.
+test('empty md link destination [x]() is outside, not dead', async () => {
+  assert.deepEqual(resolveHref('', 'index.md', proj(['index.md'])), { kind: 'outside' });
+  assert.deepEqual(resolveHref('  ', 'index.md', proj(['index.md'])), { kind: 'outside' });
+  const { buildSnapshot } = await import('../src/snapshot.js');
+  const { lintSnapshot } = await import('../src/lint.js');
+  const r = lintSnapshot(buildSnapshot({ id: 'p:x', kind: 'project', label: 'x' }, { 'index.md': '[x]() and [y]( )\n' }));
+  assert.equal(r.deadLinks.length, 0);
+});

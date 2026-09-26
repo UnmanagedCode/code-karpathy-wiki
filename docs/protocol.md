@@ -95,21 +95,25 @@ All are `GET`/`HEAD`, JSON, and read-only. `source` is a source id from `/api/so
 | Path | Params | 200 body |
 |---|---|---|
 | `/api/sources` | — | `{sources:[{id, kind, label}], conductor}` — `kind` is `orchestrator` or `project`; `conductor` is whether `CONDUCTOR_URL` is set. Filesystem roots are never sent. |
-| `/api/tree` | `source` | `{source, tree}`; `tree` is a dir node `{name, path, index, archived, dirs:[node], pages:[{path, name, title}]}` — root has `name:''`, `path:''`; `index` is the dir's `index.md` rel path or `null` and is not repeated in `pages`; dirs and pages are sorted by name. |
-| `/api/page` | `source`, `path` | `{source, path, title, frontmatter, blocks, backlinks:[{path, title}], archived, truncated, stale, lowConfidence}` |
-| `/api/lint` | `source` | `{source, now, staleAfterDays, rootIndex, counts, deadLinks, ambiguousLinks, orphans, unreachableIndexes, lowConfidence, stale}` |
+| `/api/tree` | `source` | `{source, tree, truncated}`; `tree` is a dir node `{name, path, index, archived, error, dirs:[node], pages:[{path, name, title}]}` — root has `name:''`, `path:''`; `index` is the dir's `index.md` rel path or `null` and is not repeated in `pages`; `error` is `"READ_FAILED"` when the directory exists but could not be listed, else `null`; dirs and pages are sorted by name. |
+| `/api/page` | `source`, `path` | `{source, path, title, frontmatter, blocks, backlinks:[{path, title}], archived, truncated, error, stale, lowConfidence}` |
+| `/api/lint` | `source` | `{source, now, staleAfterDays, rootIndex, truncated, counts, deadLinks, ambiguousLinks, orphans, unreachableIndexes, lowConfidence, stale}` |
 | `/api/search` | `q`, optional `source` | `{q, results:[{source, sourceLabel, path, title, archived, hits, snippets:[{line, text}]}], truncated}` |
 
 - `path` is posix, relative to the source root, every segment non-empty and not starting with `.`, no `\` or NUL, ending in `.md` (`validateRelPath` in `src/paths.js`).
 - `title` is the first `# ` heading, else the file's basename without `.md`.
 - `frontmatter` is the flat `key: value` map from a leading `---` block (values unquoted), `{}` if none.
-- `stale`/`lowConfidence` on a page apply the Health definitions in `docs/features.md`; `truncated` means the file exceeded `MAX_PAGE_BYTES` (`src/snapshot.js`) and was cut on a codepoint boundary.
+- `stale`/`lowConfidence` on a page apply the Health definitions in `docs/features.md`; `truncated` means the file exceeded `MAX_PAGE_BYTES` (`src/snapshot.js`) and was cut on a codepoint boundary — at most that many bytes (plus one) are ever read.
+- `error` on a page is `null`, `"READ_FAILED"` (the file exists but could not be read) or `"PARSE_FAILED"` (the parser threw). An errored page is still listed in the tree and served with `200`: its `blocks` and `frontmatter` are empty, its `title` is the basename, and it contributes no links or search text. Only a file that vanished (`ENOENT`) is treated as absent.
+- `truncated` on `/api/tree` and `/api/lint` is `true` when the walk hit `MAX_WALK_ENTRIES` (`src/snapshot.js`) entries for that source — possible only through symlinked directories multiplying logical paths. The tree and lint then cover an unspecified subset of the source.
 - Lint items: `deadLinks` `{from, raw, line, archived}`; `ambiguousLinks` `{from, raw, line, candidates, archived}`; `orphans` `{path, index, archived}` (`index` null when no index is above the page); `unreachableIndexes` `{path, archived}`; `lowConfidence` `{path, confidence, archived}`; `stale` `{path, updated, ageDays, archived}` (`ageDays` null when `updated` is not a real date). `counts` holds each list's length. `rootIndex` is `"index.md"` or `null`.
 - Search: at most `MAX_RESULTS` results (`truncated:true` when more matched), each with at most `MAX_SNIPPETS` snippet lines (`src/search.js`), each at most 200 characters.
 
 ### Page AST
 
-`blocks` is the renderer's input. Block nodes: `{t:'h', level, id, c}`, `{t:'p', c}`, `{t:'pre', lang, text}`, `{t:'ul'|'ol', tight, start?, items:[[block]]}`, `{t:'quote', c:[block]}`, `{t:'table', align:[left|center|right|null], head:[cell], rows:[[cell]]}` (a cell is an inline list), `{t:'hr'}`. Inline nodes: `{t:'text', v}`, `{t:'code', v}`, `{t:'em'|'strong'|'del', c}`, and links:
+The markdown subset and its limits (nesting depth `MAX_NESTING`, leading tabs expanded to 4-column stops) are described under Rendering in `docs/features.md`.
+
+`blocks` is the renderer's input. Block nodes: `{t:'h', level, id, c}`, `{t:'p', c}`, `{t:'pre', lang, text}`, `{t:'ul'|'ol', tight, start?, items:[[block]]}` (the renderer ignores an `ol` node's `start`: every list numbers from 1), `{t:'quote', c:[block]}`, `{t:'table', align:[left|center|right|null], head:[cell], rows:[[cell]]}` (a cell is an inline list), `{t:'hr'}`. Inline nodes: `{t:'text', v}`, `{t:'code', v}`, `{t:'em'|'strong'|'del', c}`, and links:
 
 ```jsonc
 { "t": "link", "form": "wiki|md|auto", "raw": "[[x]]", "line": 12, "c": [/* label inlines */],
@@ -132,12 +136,14 @@ Real HTTP statuses with `{error, code}` (these are not MCP routes, so the `{resu
 | 404 | `SOURCE_UNKNOWN` | no listed source has that id |
 | 404 | `NOT_FOUND` | no such page |
 | 403 | `PATH_ESCAPES` | `path` resolves (through a symlink) outside the source root |
+| 400 | `URL_INVALID` | the request URL cannot be parsed (any path) |
+| 500 | `INTERNAL` | an unexpected server error; the body is always `{error:"internal error", code:"INTERNAL"}`, never the exception text |
 
 Any method other than `GET`/`HEAD` on any path except `/api/mcp` is `405` with `allow: GET, HEAD`. Unknown paths are `404 {error}`.
 
 ### Headers
 
-Every browser response (API, static, 404, 405) carries:
+Every response — browser API, static, `/api/health`, `/api/mcp`, and every 400/404/405/413/500 — carries:
 
 - `x-content-type-options: nosniff`
 - `content-security-policy: default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'`

@@ -92,3 +92,6 @@ li.archived { opacity: 0.55; font-style: italic; }
 .snippets { list-style: none; padding-left: 16px; color: var(--muted); font-size: 13px; }
 .lineno { display: inline-block; min-width: 3em; text-align: right; color: #5c6573; }
 mark { background: #5a4a1a; color: #fff; border-radius: 2px; }
+.banner.error { border-color: var(--bad); color: var(--bad); }
+.badge.error { color: var(--bad); }
+.warn { color: var(--warn); }

@@ -49,6 +49,8 @@ Remote-system projects, degraded rows (`path: ''`) and worktrees are never liste
 
 Entries whose name starts with `.` (e.g. `.prune-progress.md`) are hidden everywhere: tree, pages, search, health.
 
+A page that exists but cannot be read or parsed is still listed and opens with a banner saying so (its body, links and search text are empty); an unreadable directory is badged "unreadable". A source whose walk hits `MAX_WALK_ENTRIES` (`src/snapshot.js`) — only possible through symlinked directories multiplying paths — shows "Tree truncated" in the sidebar and a notice on its Health view.
+
 ### Layout
 
 - **Sidebar** — a search box, then one tree per source (orchestrator first). Trees follow the directory structure; a directory's `index.md` is its landing page (click the directory name), not a child entry. Top-level directories start open. `global/archive/` is dimmed, italic, badged "archive — not in recall path", and starts collapsed. Each source has a **Health** link. ↻ reloads the trees.
@@ -74,6 +76,7 @@ Entries whose name starts with `.` (e.g. `.prune-progress.md`) are hidden everyw
 |---|---|
 | `http:` / `https:` | external, opens in a new tab |
 | any other scheme (`javascript:`, `data:`, `file:`, `mailto:`, …), `//host` | blocked, rendered inert |
+| empty, e.g. `[x]()` | outside, rendered inert (not a health item) |
 | `#fragment` | scrolls to that heading on the same page |
 | leading `/`, or a relative path outside the wiki root | outside, rendered inert (not a health item) |
 | relative, ending `/` or naming a directory | that directory's `index.md` (dead if absent) |
@@ -102,5 +105,9 @@ The sidebar box searches every source (the API also takes a single `source`). Th
 ### Rendering
 
 A markdown subset: ATX headings, paragraphs, emphasis/strong/strikethrough, code spans, fenced code (```` ``` ```` or `~~~`), block quotes, nested lists, GFM tables with alignment, thematic breaks, links. Not supported: indented code blocks, setext headings, reference-style links, images (shown as a link labelled by the alt text). Raw HTML is shown as literal text; HTML comments are dropped.
+
+- Leading tabs expand to the next multiple of 4 columns before parsing, inside fenced code too.
+- Ordered lists always number from 1 on screen; the source's starting number is not shown.
+- Quotes/lists nested deeper than `MAX_NESTING` (`src/markdown.js`) levels, and emphasis nested deeper than that, are shown as plain text from that depth on (no links are recognised there).
 
 See `docs/protocol.md` for the wire contract and refusal codes, `docs/architecture.md` for how paths and workspaces are resolved and how the browser is confined.
