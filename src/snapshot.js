@@ -84,6 +84,7 @@ export function annotatedBlocks(page) {
 // re-read nor re-parsed. One slot per file, so it is bounded by the tree.
 // Error entries are not cached, so a transient failure clears on the next walk.
 const cache = new Map();
+export const _parseCached = (real) => cache.has(real);
 
 // At most cap + 1 bytes (the extra byte lets truncateUtf8 see whether the cut
 // splits a codepoint), however large the file is or grows to.
@@ -144,6 +145,7 @@ export async function loadSnapshot(source) {
   const dirErrors = new Set();
   let visited = 0;
   let truncated = false;
+  const seen = new Set();
 
   const walk = async (relDir, stack) => {
     let ents;
@@ -172,12 +174,18 @@ export async function loadSnapshot(source) {
         dirs.add(rel);
         await walk(rel, [...stack, real]);
       } else if (st.isFile() && ent.name.endsWith('.md')) {
+        seen.add(real);
         const entry = await readEntry(real, st);
         if (entry) files.set(rel, entry);
       }
     }));
   };
   await walk('', [rootReal]);
+  // A complete walk saw every live file under this root: drop the rest, so a
+  // deleted file stops pinning memory. Other sources' entries are untouched.
+  if (!truncated) {
+    for (const k of cache.keys()) if (k.startsWith(rootReal + path.sep) && !seen.has(k)) cache.delete(k);
+  }
   const snap = buildSnapshot(source, files, dirs);
   snap.rootReal = rootReal;
   snap.dirErrors = dirErrors;

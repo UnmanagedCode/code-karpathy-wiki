@@ -146,11 +146,14 @@ test('http(s) -> external; #frag -> anchor', () => {
 });
 
 // Invariant: an empty md destination names nothing — inert, and never a dead-link health item.
-test('empty md link destination [x]() is outside, not dead', async () => {
+test('a destination with no path ([x](), [x](?q), [x](?#f)) is outside, not dead; #frag stays an anchor', async () => {
   assert.deepEqual(resolveHref('', 'index.md', proj(['index.md'])), { kind: 'outside' });
   assert.deepEqual(resolveHref('  ', 'index.md', proj(['index.md'])), { kind: 'outside' });
+  // No path at all once ?query/#fragment are stripped: also inert. Only a bare #frag is an anchor.
+  for (const h of ['?q', '?#f', '?', ' ?q=1 ']) assert.deepEqual(resolveHref(h, 'index.md', proj(['index.md'])), { kind: 'outside' }, h);
+  assert.deepEqual(resolveHref('#f', 'index.md', proj(['index.md'])), { kind: 'anchor', href: '#f' });
   const { buildSnapshot } = await import('../src/snapshot.js');
   const { lintSnapshot } = await import('../src/lint.js');
-  const r = lintSnapshot(buildSnapshot({ id: 'p:x', kind: 'project', label: 'x' }, { 'index.md': '[x]() and [y]( )\n' }));
+  const r = lintSnapshot(buildSnapshot({ id: 'p:x', kind: 'project', label: 'x' }, { 'index.md': '[x]() and [y]( ) [z](?q) [w](?#f)\n' }));
   assert.equal(r.deadLinks.length, 0);
 });

@@ -3,6 +3,7 @@
 // (#/page/<source>/<path>, #/health/<source>, #/search?q=), which works the
 // same standalone and under the prefix. No HTML strings: DOM is built with el().
 import { renderBlocks, pageHref, headingId } from './render.js';
+import { sourceStatus } from './tree.js';
 
 const DEFAULT_ROUTE = '#/page/orchestrator/index.md';
 const sidebar = document.getElementById('sidebar');
@@ -77,9 +78,12 @@ function sourceSection(source, tree, error, truncated) {
       : el('span', { class: 'source-label' }, [source.label]),
     el('a', { href: healthHref(source.id), class: 'health-link' }, ['Health']),
   ]);
+  const status = sourceStatus(tree, error);
   let body;
-  if (error) body = el('p', { class: 'muted' }, [error.message]);
-  else if (!tree.dirs.length && !tree.pages.length) body = el('p', { class: 'muted' }, [tree.index ? '' : 'No pages yet.']);
+  if (status === 'fetch-error') body = el('p', { class: 'muted' }, [error?.message ?? 'Could not load the tree.']);
+  else if (status === 'unreadable') body = el('div', { class: 'banner error' }, ['This wiki\'s directory exists but could not be read.']);
+  else if (status === 'index-only') body = null;
+  else if (status === 'empty') body = el('p', { class: 'muted' }, ['No pages yet.']);
   else {
     body = el('ul', { class: 'tree' }, [
       ...tree.dirs.map((d) => el('li', {}, [treeDir(source.id, d, 1)])),

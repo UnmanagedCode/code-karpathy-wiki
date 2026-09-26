@@ -119,7 +119,8 @@ export function resolveHref(href, fromRel, ctx) {
   let dest = raw.trim();
   const cut = dest.search(/[?#]/);
   if (cut >= 0) dest = dest.slice(0, cut);
-  if (dest === '') return DEAD;
+  // No path once ?query/#fragment are gone (a bare #frag is an anchor, above): inert.
+  if (dest === '') return { kind: 'outside' };
   try {
     dest = decodeURIComponent(dest);
   } catch {

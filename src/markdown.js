@@ -127,11 +127,13 @@ function parseBlocks(recs, st, depth) {
   }
   const out = [];
   let i = 0;
+  // Once one opener finds no `-->`, none after it can: skip the rescan.
+  let unclosed = false;
   while (i < recs.length) {
     const { s } = recs[i];
     if (isBlank(s)) { i++; continue; }
 
-    if (commentStart(s)) {
+    if (!unclosed && commentStart(s)) {
       // An HTML comment block is dropped; text after its close on the same line survives.
       const at = s.indexOf('<!--');
       let k = i;
@@ -142,11 +144,14 @@ function parseBlocks(recs, st, depth) {
         if (close >= 0) break;
         k++;
       }
-      if (close < 0) break;
-      const rest = recs[k].s.slice(close + 3);
-      // In place: recs is always this call's own array.
-      if (isBlank(rest)) { i = k + 1; } else { recs[k] = { s: rest, n: recs[k].n }; i = k; }
-      continue;
+      if (close >= 0) {
+        const rest = recs[k].s.slice(close + 3);
+        // In place: recs is always this call's own array.
+        if (isBlank(rest)) { i = k + 1; } else { recs[k] = { s: rest, n: recs[k].n }; i = k; }
+        continue;
+      }
+      // Unterminated: the `<!--` is literal text; fall through to the paragraph.
+      unclosed = true;
     }
 
     let m = FENCE_RE.exec(s);
@@ -359,6 +364,15 @@ function backtickClose(cx, from, to, n) {
   return lo < list.length && list[lo] + n <= to ? list[lo] : -1;
 }
 
+// End of the HTML comment starting at j, exactly as inl() skips it, or -1.
+// Global scans must skip it too, or a backtick or bracket inside a comment
+// would pair with one outside it that inl() sees.
+function skipComment(cx, j) {
+  if (!cx.S.startsWith('<!--', j)) return -1;
+  const e = commentClose(cx, j + 4);
+  return e >= 0 ? e + 3 : -1;
+}
+
 // Skip a whole code span (or an unmatched run) starting at j.
 function skipCode(cx, j) {
   const n = runLen(cx.S, j, cx.S.length, '`');
@@ -394,6 +408,7 @@ function findSeq(cx, from, to, seq) {
     const c = S[j];
     if (c === '\\') return { next: j + 2 };
     if (c === '`') return { next: skipCode(cx, j) };
+    if (c === '<') { const e = skipComment(cx, j); if (e >= 0) return { next: e }; }
     if (S.startsWith(seq, j)) return { hit: j };
     return { next: j + 1 };
   });
@@ -405,13 +420,14 @@ function linkTables(cx) {
   if (cx.T) return cx.T;
   const { S } = cx;
   const n = S.length;
-  // Bracket pairs, skipping escapes and code spans like the scan they replace.
+  // Bracket pairs, skipping escapes, code spans and comments as inl() does.
   const match = new Int32Array(n).fill(-1);
   const stack = [];
   for (let j = 0; j < n;) {
     const c = S[j];
     if (c === '\\') { j += 2; continue; }
     if (c === '`') { j = skipCode(cx, j); continue; }
+    if (c === '<') { const e = skipComment(cx, j); if (e >= 0) { j = e; continue; } }
     if (c === '[') stack.push(j);
     else if (c === ']' && stack.length) match[stack.pop()] = j;
     j++;

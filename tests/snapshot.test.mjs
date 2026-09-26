@@ -4,7 +4,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { handle } from '../src/browse.js';
 import { parse } from '../src/markdown.js';
-import { loadSnapshot, MAX_PAGE_BYTES, MAX_WALK_ENTRIES, _setParse, _setMaxWalkEntries } from '../src/snapshot.js';
+import { loadSnapshot, MAX_PAGE_BYTES, MAX_WALK_ENTRIES, _setParse, _setMaxWalkEntries, _parseCached } from '../src/snapshot.js';
 import { freshWiki, cleanup, resetEnv } from './_helpers.mjs';
 
 const get = (route, params = {}) => handle(route, new URLSearchParams(params));
@@ -160,5 +160,21 @@ test('cached parse entries are path-independent: alias and target keep their own
         assert.equal((await get('/api/page', { source: 'orchestrator', path: p })).body.title, p.replace('.md', ''));
       }
     }
+  });
+});
+
+// Invariant (optional round-2 item): a file deleted from the tree stops pinning the parse cache after the next walk.
+test('parse cache evicts entries whose file the walk no longer visits', async () => {
+  await withWiki(async ({ write }) => {
+    const abs = await write('gone.md', '# Gone');
+    await write('stay.md', '# Stay');
+    await loadSnapshot(ORCH());
+    const real = await fs.realpath(abs);
+    const stay = await fs.realpath(path.join(path.dirname(abs), 'stay.md'));
+    assert.equal(_parseCached(real), true);
+    await fs.rm(abs);
+    await loadSnapshot(ORCH());
+    assert.equal(_parseCached(real), false);
+    assert.equal(_parseCached(stay), true);
   });
 });

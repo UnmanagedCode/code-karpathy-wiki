@@ -62,7 +62,7 @@ code-karpathy-wiki/
 │   ├── search.js               # full-text search
 │   ├── browse.js               # browser API handlers
 │   └── static.js               # frontend asset serving
-├── frontend/                   # index.html, app.js, render.js, styles.css
+├── frontend/                   # index.html, app.js, render.js, tree.js, styles.css
 ├── conventions/
 │   ├── project-wiki.md         # scope: project
 │   └── orchestrator-wiki.md    # scope: conductor

@@ -254,3 +254,26 @@ test('nesting depth is bounded: 4000 nested list markers or 12000 quote markers 
     assert.ok(all.includes('X') || all.includes('x') || all.includes('b'), 'content survives as text');
   }
 });
+
+// Invariant: an unterminated block-level <!-- is literal text; the rest of the page still parses.
+test('an unterminated block <!-- is literal text and does not discard the rest of the page', () => {
+  const { blocks, links } = parse('intro para\n\n<!-- oops\n\nafter [[dead-link]]\nmore text\n');
+  assert.equal(blocks.length, 3);
+  assert.ok(texts(blocks).includes('<!-- oops'));
+  assert.ok(texts(blocks).includes('more text'));
+  assert.deepEqual(links.map((l) => l.raw), ['[[dead-link]]']);
+  assert.ok(timed('<!--\n'.repeat(100000)) < 1000, 'many unterminated openers stay linear');
+});
+
+// Invariant: an inline HTML comment the scanner skips is transparent to every
+// lookup table — a backtick inside it never pairs with one outside it.
+test('inline comments are transparent: backticks inside <!--…--> never form code spans with text outside', () => {
+  const strip = (s) => s.replace(/<!--[^]*?-->/g, '');
+  for (const src of ['|<!--`-->[t](real.md)`', '__<!--`-->*`*__`', '<!--`-->[[w]] `', '*<!--`-->a* `', 'x <!--[-->[t](y.md)']) {
+    const a = parse(src);
+    const b = parse(strip(src));
+    assert.deepEqual(a.blocks, b.blocks, src);
+    assert.deepEqual(a.links.map((l) => l.raw), b.links.map((l) => l.raw), src);
+  }
+  assert.deepEqual(parse('|<!--`-->[t](real.md)`').links.map((l) => l.href), ['real.md']);
+});

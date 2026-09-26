@@ -138,3 +138,16 @@ test('live-shaped fixture lints clean', () => {
   assert.deepEqual(summary, { deadLinks: 0, ambiguousLinks: 0, orphans: 0, unreachableIndexes: 0, lowConfidence: 0, stale: 0 },
     JSON.stringify({ dead: r.deadLinks, amb: r.ambiguousLinks, orph: r.orphans, unr: r.unreachableIndexes }, null, 1));
 });
+
+// Invariant: text after an unterminated <!-- or after an inline comment holding a
+// backtick still yields its links — for backlinks and for the dead-link check.
+test('links after an unterminated or backtick-holding comment reach backlinks and lint', () => {
+  const s = snap({
+    'index.md': '|<!--`-->[t](real.md)` and [m](missing.md)\n',
+    'other.md': 'intro\n\n<!-- oops\n\nafter [[real]] [[gone]]\n',
+    'real.md': '# Real',
+  });
+  assert.deepEqual(s.backlinks.get('real.md'), ['index.md', 'other.md']);
+  const r = lintSnapshot(s, { now: NOW });
+  assert.deepEqual(r.deadLinks.map((d) => `${d.from}:${d.raw}`), ['index.md:[m](missing.md)', 'other.md:[[gone]]']);
+});
