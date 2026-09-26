@@ -31,10 +31,17 @@ test('backend + mcp blocks: mcp requires backend', () => {
   assert.equal(manifest.mcp.tools[0].name, 'read_index');
 });
 
-// scope:"workspace" is recognised-but-rejected at manifest load, and a frontend
-// is an explicit non-goal — both would change how the host treats this plugin.
-test('no frontend block, and no mcp scope key', () => {
-  assert.equal(manifest.frontend, undefined);
+// Mirrors validateFrontend in code-conductor: only path/navLabel, and a
+// frontend requires a backend. mcp.scope stays unset — scope:"workspace" is
+// recognised-but-rejected at manifest load.
+test('frontend block shape, and no mcp scope key', () => {
+  const fe = manifest.frontend;
+  assert.ok(fe && typeof fe === 'object');
+  for (const k of Object.keys(fe)) assert.ok(['path', 'navLabel'].includes(k), `frontend key ${k}`);
+  assert.equal(fe.path, '/');
+  assert.equal(typeof fe.navLabel, 'string');
+  assert.ok(fe.navLabel.trim().length > 0);
+  assert.ok(manifest.backend, 'frontend requires backend');
   assert.equal(manifest.mcp.scope, undefined);
 });
 

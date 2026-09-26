@@ -1,3 +1,4 @@
+import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -41,4 +42,32 @@ export function safeJoin(root, ...segments) {
 // Always posix-separated so the label is stable across platforms.
 export function relLabel(root, abs) {
   return path.relative(root, abs).split(path.sep).join('/');
+}
+
+// A page path as the browser API receives it: posix, relative, every segment a
+// real name (no '', '.', '..', nor any dot-prefixed entry — those are conductor
+// scratch files and are excluded everywhere), ending in .md. Returns the path or null.
+export function validateRelPath(rel) {
+  if (typeof rel !== 'string' || rel === '') return null;
+  if (rel.startsWith('/') || rel.includes('\\') || rel.includes('\0')) return null;
+  const segs = rel.split('/');
+  if (segs.some((s) => s === '' || s.startsWith('.'))) return null;
+  if (!segs[segs.length - 1].endsWith('.md')) return null;
+  return segs.join('/');
+}
+
+export const ESCAPES = 'ESCAPES';
+
+// The symlink-aware containment check the browser applies to every walk entry
+// and every read. rootReal must already be a realpath. Returns the resolved
+// absolute path, ESCAPES when it lands outside rootReal, or null when it does
+// not resolve (ENOENT, ELOOP, ENOTDIR, ...).
+export async function confinedRealpath(rootReal, rel) {
+  let abs;
+  try {
+    abs = await fs.realpath(path.join(rootReal, rel));
+  } catch {
+    return null;
+  }
+  return (abs === rootReal || abs.startsWith(rootReal + path.sep)) ? abs : ESCAPES;
 }

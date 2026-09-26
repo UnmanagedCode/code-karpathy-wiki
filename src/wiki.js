@@ -20,7 +20,7 @@ const SHAPE = `must be a single path segment matching ${SEGMENT_RE.source}`;
 // the sequence it belongs to straddles the boundary, so walk back to that
 // sequence's lead byte and drop it whole. Deliberately not TextDecoder in
 // non-fatal mode: that substitutes a U+FFFD the source file never contained.
-function truncateUtf8(buf, cap) {
+export function truncateUtf8(buf, cap) {
   let end = cap;
   while (end > 0 && (buf[end] & 0xc0) === 0x80) end--;
   return buf.subarray(0, end).toString('utf8');

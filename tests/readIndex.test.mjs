@@ -355,3 +355,19 @@ test('transport: health, routing, and the non-200 cases', async () => {
     }
   });
 });
+
+// Pins today's behaviour: read_index follows a symlinked index out of the wiki.
+// Adopting the browser's confinedRealpath here is a deliberate follow-up, so
+// this test must change with that decision rather than silently.
+test('read_index does not apply the browser realpath check (deliberate, see architecture)', async () => {
+  await withWiki(async ({ root, wiki, write }) => {
+    await write('index.md', 'r');
+    await fs.writeFile(path.join(root, 'outside.md'), 'CANARY-SYMLINKED');
+    await fs.mkdir(path.join(wiki, 'global'), { recursive: true });
+    await fs.symlink(path.join(root, 'outside.md'), path.join(wiki, 'global', 'index.md'));
+
+    const r = await readIndex({});
+    assert.deepEqual(r.meta.missing, []);
+    assert.equal(r.text[1], header('global/index.md') + 'CANARY-SYMLINKED');
+  });
+});

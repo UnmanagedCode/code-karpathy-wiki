@@ -1,7 +1,7 @@
 {
   "id": "code-wiki",
   "name": "Code Karpathy Wiki",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "pluginApi": 1,
   "conventions": [
     {
@@ -24,6 +24,7 @@
     "start": "node server.js",
     "healthPath": "/api/health"
   },
+  "frontend": { "path": "/", "navLabel": "Wiki" },
   "mcp": {
     "endpoint": "/api/mcp",
     "tools": [

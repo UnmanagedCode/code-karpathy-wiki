@@ -2,12 +2,27 @@ import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as mcp from './src/mcp.js';
+import * as browse from './src/browse.js';
+import { serveAsset } from './src/static.js';
 
 // 7000 (code-hub), 7100 (code-kanban), 8787 (code-conductor) and 9419/9420
 // (code-share) are taken. Under the supervisor $PORT is always injected; this
 // default only matters for a hand-run `node server.js`.
 const DEFAULT_PORT = 7200;
 const MAX_BODY_BYTES = 256 * 1024;
+
+// Every browser response (API and static) carries these. The page runs in an
+// unsandboxed same-origin host iframe, so the CSP backs up the AST-only
+// renderer: no inline script or style, and nothing loaded from elsewhere.
+const SECURITY_HEADERS = {
+  'x-content-type-options': 'nosniff',
+  'content-security-policy': "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
+};
+
+function sendBrowser(res, status, obj) {
+  for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.setHeader(k, v);
+  return send(res, status, obj);
+}
 
 function send(res, status, obj) {
   const buf = Buffer.from(JSON.stringify(obj));
@@ -42,7 +57,7 @@ function readBody(req) {
 
 async function route(req, res) {
   // Parse the URL rather than comparing req.url: it carries the query string.
-  const { pathname } = new URL(req.url, 'http://localhost');
+  const { pathname, searchParams } = new URL(req.url, 'http://localhost');
 
   if (pathname === '/api/health') {
     if (req.method !== 'GET' && req.method !== 'HEAD') {
@@ -81,7 +96,22 @@ async function route(req, res) {
   // Draining is mandatory on every path that doesn't read the body — an unread
   // request body stalls the keep-alive socket. (express did this for us.)
   req.resume();
-  return send(res, 404, { error: 'not found' });
+
+  // Everything else is the read-only browser surface: there is no write route.
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    res.setHeader('allow', 'GET, HEAD');
+    return sendBrowser(res, 405, { error: 'method not allowed' });
+  }
+
+  const api = await browse.handle(pathname, searchParams);
+  if (api) return sendBrowser(res, api.status, api.body);
+
+  const asset = await serveAsset(pathname);
+  if (asset) {
+    res.writeHead(asset.status, { ...SECURITY_HEADERS, ...asset.headers });
+    return res.end(asset.body);
+  }
+  return sendBrowser(res, 404, { error: 'not found' });
 }
 
 export function createServer() {

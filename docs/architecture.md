@@ -3,15 +3,26 @@
 ## Layout
 
 ```
-server.js          node:http server — routing, body cap, listen/retry
-src/paths.js       PROJECTS_ROOT -> wikiRoot(), SEGMENT_RE, safeJoin(), relLabel()
-src/wiki.js        readIndex() — the domain layer; MAX_FILE_BYTES
-src/projects.js    workspace resolution via CONDUCTOR_URL; the test seam
+server.js          node:http server — routing, body cap, method guard, security headers, listen/retry
+src/paths.js       PROJECTS_ROOT -> wikiRoot(), SEGMENT_RE, safeJoin(), relLabel(), validateRelPath(), confinedRealpath()
+src/wiki.js        readIndex() — the MCP domain layer; MAX_FILE_BYTES, truncateUtf8()
+src/projects.js    workspace resolution + localProjectWikis() via CONDUCTOR_URL; the test seam
 src/mcp.js         envelope only: {tool, arguments} -> {status, body}
+src/sources.js     listSources(), getSource(id) — orchestrator + local project .wiki/
+src/markdown.js    parse(text) -> {frontmatter, blocks, title, links}; pure
+src/links.js       buildNameIndex, scopeOf, resolveWiki, resolveHref; pure
+src/snapshot.js    loadSnapshot(source): walk + parse cache + resolution + backlinks; MAX_PAGE_BYTES
+src/lint.js        lintSnapshot(snap, {now}); STALE_AFTER_DAYS
+src/search.js      queryTerms(q), search(snaps, terms); MAX_RESULTS, MAX_SNIPPETS
+src/browse.js      handle(pathname, searchParams) -> {status, body} | null
+src/static.js      serveAsset(pathname) -> {status, headers, body} | null
+frontend/          index.html, app.js (router + views), render.js (AST -> DOM), styles.css
 tests/             node:test via tests/run.mjs
 ```
 
 The layers are split so tests can hit each one without the one below: `wiki.readIndex` for domain behaviour, `mcp.handle` for the envelope, a real socket only for transport. `src/projects.js` exists to isolate the single network call behind a swappable fetcher, which keeps the whole suite offline.
+
+The browser stacks the same way: `sources` → `snapshot` (disk) → `links` → `lint`/`search` → `browse` (HTTP-shaped, no socket) → `server.js`. `markdown`, `links`, `lint` and `search` are pure and tested on in-memory data (`buildSnapshot(source, {rel: text})`); `snapshot`/`sources` on tmp fixture trees; `browse` and `static` as handlers.
 
 ## Zero dependencies — a hard constraint
 
@@ -35,7 +46,9 @@ On a body over 256 KiB the request is *not* destroyed: tearing down the socket m
 1. **`SEGMENT_RE = /^[a-zA-Z0-9_-][a-zA-Z0-9._-]*$/`.** The leading class excludes `.`, so `..`, `.`, `...` and `.hidden` are rejected outright. A validator that admits `..` and leans on containment to catch it is the wrong shape in the one plugin whose whole job is turning these names into directory segments. Failure → `PROJECT_INVALID` / `WORKSPACE_INVALID`.
 2. **`safeJoin()` containment assert** — `path.resolve` must land on `wikiRoot` or inside `wikiRoot + path.sep`. Unreachable after layer one, kept as defence in depth. It returns `null` rather than throwing so the caller picks the outcome: an escaping *argument* is a refusal, an escaping *resolved* workspace is a skip.
 
-`path.resolve` does not follow symlinks, so a symlinked directory under `.conduct/wiki/` could point outside. Accepted: `.conduct/` is the conductor's own machine-local tree, and a name is validated by both layers above before it ever reaches the filesystem — so reaching such a link requires write access to that tree, not a crafted argument. The containment assert defends against argument-driven traversal, not against a hostile filesystem.
+`path.resolve` does not follow symlinks, so for `read_index` a symlinked directory or index under `.conduct/wiki/` could point outside. Accepted: `.conduct/` is the conductor's own machine-local tree, and a name is validated by both layers above before it ever reaches the filesystem — so reaching such a link requires write access to that tree, not a crafted argument. The containment assert defends against argument-driven traversal, not against a hostile filesystem.
+
+`read_index` deliberately does **not** use the browser's `confinedRealpath` (below): its behaviour is pinned by the test `read_index does not apply the browser realpath check (deliberate, see architecture)`. The recommended follow-up is to adopt it, reporting an escaping index in `meta.missing`; that test changes with that decision.
 
 ## Workspace resolution
 
@@ -51,8 +64,42 @@ On a body over 256 KiB the request is *not* destroyed: tearing down the socket m
 
 Sizing: live index pages run ~6 KiB and the largest wiki page ~36 KiB, so the cap never bites in practice while bounding a worst case of 5 scopes × 64 KiB ≈ 320 KiB per call. There is no total cap.
 
+## Browser confinement
+
+The browser serves page bytes from two kinds of root (the orchestrator wiki, each project's `.wiki/`), so it confines by **realpath**, not by string:
+
+1. **`validateRelPath(rel)`** — the request's `path` must be posix-relative, with no `\` or NUL, no empty segment, no segment starting with `.` (which covers `.`, `..` and conductor scratch files like `.prune-progress.md`), and end in `.md`. Failure → `400 PATH_INVALID`, before any filesystem access.
+2. **`confinedRealpath(rootReal, rel)`** — `fs.realpath(join(rootReal, rel))` must equal `rootReal` or start with `rootReal + path.sep`; otherwise it returns `ESCAPES`. Unresolvable (ENOENT, ELOOP, …) → `null`. `rootReal` is the realpath of the source root, so a symlinked root is fine; everything below it is confined to it.
+
+A page read runs 1 → realpath the root → 2 (`ESCAPES` → `403 PATH_ESCAPES`, `null` → `404`) → must be a regular file → served from the snapshot. The walk applies 2 to every entry: an escaping symlink (file or dir) is omitted, so it never appears in the tree, search, lint or backlinks. Contained symlinked dirs are followed; a dir whose realpath is already on the current walk path (a cycle) is not re-entered. Page keys are logical rel paths. A swap between the realpath check and the read (TOCTOU) is accepted — it needs write access to the tree.
+
+Project roots come from the host's `/api/projects` row `path` (`localProjectWikis`), never from the project name, so the name needs no `SEGMENT_RE` check; it is only the `p:<name>` id and the label. Rows are kept only when `(system ?? 'local') === 'local'`, `path` is absolute, and `<path>/.wiki` stats as a directory.
+
+## Snapshot and parse cache
+
+`loadSnapshot(source)` walks the source on **every** request — no watchers, always fresh. A module-level cache keyed by realpath holds `{mtimeMs|size, parsed entry}`, so an unchanged file is neither re-read nor re-parsed, and the cache is bounded by the number of files. Cached entries are shared across snapshots and never mutated: each snapshot resolves links into its own `page.res[]`, indexed by the link node's `i`, and `annotatedBlocks(page)` deep-copies the blocks merging each resolution into its link node for `/api/page`. Backlinks are the sorted, deduped set of pages with a resolved `page` link to the target, excluding self.
+
+Files over `MAX_PAGE_BYTES` are cut with `truncateUtf8` (shared with `read_index`) and flagged `truncated`.
+
+## Why the renderer is AST -> DOM
+
+The host opens the page in a full-page iframe with **no sandbox, same-origin with the host**, and the host has no auth. A script injected through a wiki page could therefore call the host's own `/api/*` — spawn sessions, run bash. So:
+
+- The server parses markdown into a JSON AST; raw HTML is never markup (literal text; comments dropped), and link destinations are never entity-decoded.
+- `frontend/render.js` builds DOM from a fixed node-type → tag map (`ALLOWED_TAGS`), text only via `createTextNode`, attributes only `href`/`id`/`class`/`title`/`target`/`rel`/`data-*`. Unknown node types are dropped. An `external` href is re-validated with `new URL()` to `http:`/`https:`; `page` hrefs are `#/page/…` built with `encodeURIComponent`. Heading ids are prefixed `h-` so page content cannot clobber app element ids.
+- No `innerHTML`, `outerHTML`, `insertAdjacentHTML`, `document.write`, `eval` or `Function` anywhere in `frontend/` (asserted by `tests/frontend.test.mjs`).
+- The CSP on every browser response is the second layer: no inline script or style, nothing from another origin.
+
 ## Test patterns
 
 `tests/run.mjs` drives `node:test` through its **programmatic API** — some node wrappers hoist leading `--flags` into `NODE_OPTIONS`, which rejects `--test`. Files run at `concurrency: 1`: `PROJECTS_ROOT`, `CONDUCTOR_URL` and the module-global fetcher are process globals set per test, and concurrency would race them.
 
 `tests/_helpers.mjs` gives each test a `mkdtemp` fixture wiki via `PROJECTS_ROOT` and a `resetEnv()` that runs in `finally`, so any file order passes. `useProjects(rows)` stubs the host list through `_setProjectFetcher` and returns a call counter — that counter is how the "no `CONDUCTOR_URL` → no work" contract is asserted. Tests never touch the real `.conduct/` tree.
+
+Browser test patterns:
+
+- `tests/_fakedom.mjs` — a minimal `createElement`/`createTextNode`/`setAttribute`/`append`/`addEventListener` stand-in, injected as `render.js`'s `doc`. Render tests assert the tag and attribute allowlists over everything emitted, including from forged ASTs.
+- `treeDigest(dir)` (`tests/_helpers.mjs`) — sorted lstat + sha256 fingerprint of a tree. The no-write test sweeps every browser route and static path with GET and every write method and requires identical digests before and after.
+- `freshProjectWiki(root, name, files)` builds `<root>/<name>/.wiki/` and returns the host row to feed `useProjects`.
+- `tests/lint.test.mjs` has a **live-shaped fixture** (root → `global/` → families + `archive/`, `workspaces/W/`, `projects/P/`, page-relative `[[../fam/x]]`, backticked syntax examples) that must lint clean — the false-positive tripwire.
+- Tests never touch the real `.conduct/` tree.
