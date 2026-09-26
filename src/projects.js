@@ -1,3 +1,6 @@
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
+
 // Workspace resolution. The conductor injects CONDUCTOR_URL when it spawns this
 // plugin; its /api/projects rows carry the authoritative `workspace` field.
 // There is deliberately NO filesystem fallback — workspace membership is host
@@ -45,4 +48,36 @@ export async function workspaceForProject(name) {
   const row = list.find((p) => p && typeof p === 'object' && p.name === name);
   const ws = row?.workspace;
   return typeof ws === 'string' && ws !== '' ? ws : null;
+}
+
+// Project wikis the browser can list: host rows on the local system whose base
+// checkout has a .wiki/ directory. Same "no conductor context -> no work" guard
+// as workspaceForProject, and every failure collapses to []. A row with no
+// `system` field (older host) counts as local. The name is only a label and an
+// id — the directory comes from the row's `path`, never from the name.
+export async function localProjectWikis() {
+  if (!process.env.CONDUCTOR_URL) return [];
+  let list;
+  try {
+    list = await fetchProjectsImpl();
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  for (const row of list) {
+    if (!row || typeof row !== 'object' || typeof row.name !== 'string' || row.name === '') continue;
+    if ((row.system ?? 'local') !== 'local') continue;
+    if (typeof row.path !== 'string' || row.path === '' || !path.isAbsolute(row.path)) continue;
+    const id = `p:${row.name}`;
+    if (out.some((s) => s.id === id)) continue;
+    const root = path.join(row.path, '.wiki');
+    try {
+      if (!(await fs.stat(root)).isDirectory()) continue;
+    } catch {
+      continue;
+    }
+    out.push({ id, kind: 'project', label: row.name, root });
+  }
+  return out;
 }

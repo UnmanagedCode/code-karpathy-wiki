@@ -6,8 +6,12 @@
 |---|---|---|
 | `GET`/`HEAD` | `/api/health` | readiness/liveness probe → `200 {"ok":true}` |
 | `POST` | `/api/mcp` | the single MCP tool endpoint |
+| `GET`/`HEAD` | `/api/sources`, `/api/tree`, `/api/page`, `/api/lint`, `/api/search` | the browser API — see [Browser API](#browser-api) |
+| `GET`/`HEAD` | `/`, `/<name>.(html\|js\|css)` | the browser page's static assets |
 
-Manifest: `backend {start:"node server.js", healthPath:"/api/health"}`, `mcp {endpoint:"/api/mcp"}`. `mcp` requires `backend`. No `frontend` block.
+Manifest: `backend {start:"node server.js", healthPath:"/api/health"}`, `mcp {endpoint:"/api/mcp"}`, `frontend {path:"/", navLabel:"Wiki"}`. `mcp` and `frontend` each require `backend`. `frontend` accepts only `path` (must start with `/`) and `navLabel` (non-empty); any other key marks the plugin `invalid`.
+
+The MCP wire contract below covers `/api/mcp` only. The browser routes have their own error shape.
 
 ## Wire contract
 
@@ -77,3 +81,71 @@ That is the whole set. In particular these are **not** refusals:
 - a scope with no `index.md` yet, or an absent wiki root → `meta.missing`;
 - a project the host doesn't list, or a host that can't be reached → `resolvedWorkspace: null`;
 - a **resolved** workspace name that isn't addressable as a path segment → skipped, listed in `meta.missing`, `resolvedWorkspace` still reports the raw value. The host's workspace rule (`/^[\w][\w \-./]{0,39}$/`) permits spaces and `/`, so this is reachable with a legal upstream name such as `CC Dev`. The caller did nothing wrong, and refusing would deny them every other scope too. An explicit `workspace` **argument** in that shape is still refused — the asymmetry is deliberate.
+
+## Browser API
+
+### Mounting
+
+The host mounts the plugin at `/plugins/code-wiki/` and proxies **every** path and method to this backend with the prefix stripped (`/plugins/code-wiki/api/tree?source=x` arrives as `/api/tree?source=x`); a bare `/plugins/code-wiki` is redirected to the trailing-slash form. The nav entry opens the backend root in a full-page iframe, so `frontend.path` is `/`. **Every URL in `frontend/` must be relative with no leading `/`** (`app.js`, `api/tree?…`) — a leading `/` would hit the host itself. `tests/frontend.test.mjs` scans for violations.
+
+### Routes
+
+All are `GET`/`HEAD`, JSON, and read-only. `source` is a source id from `/api/sources`.
+
+| Path | Params | 200 body |
+|---|---|---|
+| `/api/sources` | — | `{sources:[{id, kind, label}], conductor}` — `kind` is `orchestrator` or `project`; `conductor` is whether `CONDUCTOR_URL` is set. Filesystem roots are never sent. |
+| `/api/tree` | `source` | `{source, tree, truncated}`; `tree` is a dir node `{name, path, index, archived, error, dirs:[node], pages:[{path, name, title}]}` — root has `name:''`, `path:''`; `index` is the dir's `index.md` rel path or `null` and is not repeated in `pages`; `error` is `"READ_FAILED"` when the directory exists but could not be listed, else `null`; dirs and pages are sorted by name. |
+| `/api/page` | `source`, `path` | `{source, path, title, frontmatter, blocks, backlinks:[{path, title}], archived, truncated, error, stale, lowConfidence}` |
+| `/api/lint` | `source` | `{source, now, staleAfterDays, rootIndex, truncated, counts, deadLinks, ambiguousLinks, orphans, unreachableIndexes, lowConfidence, stale}` |
+| `/api/search` | `q`, optional `source` | `{q, results:[{source, sourceLabel, path, title, archived, hits, snippets:[{line, text}]}], truncated}` |
+
+- `path` is posix, relative to the source root, every segment non-empty and not starting with `.`, no `\` or NUL, ending in `.md` (`validateRelPath` in `src/paths.js`).
+- `title` is the first `# ` heading, else the file's basename without `.md`.
+- `frontmatter` is the flat `key: value` map from a leading `---` block (values unquoted), `{}` if none.
+- `stale`/`lowConfidence` on a page apply the Health definitions in `docs/features.md`; `truncated` means the file exceeded `MAX_PAGE_BYTES` (`src/snapshot.js`) and was cut on a codepoint boundary — at most that many bytes (plus one) are ever read.
+- `error` on a page is `null`, `"READ_FAILED"` (the file exists but could not be read) or `"PARSE_FAILED"` (the parser threw). An errored page is still listed in the tree and served with `200`: its `blocks` and `frontmatter` are empty, its `title` is the basename, and it contributes no links or search text. Only a file that vanished (`ENOENT`) is treated as absent.
+- `truncated` on `/api/tree` and `/api/lint` is `true` when the walk hit `MAX_WALK_ENTRIES` (`src/snapshot.js`) entries for that source — possible only through symlinked directories multiplying logical paths. The tree and lint then cover an unspecified subset of the source.
+- Lint items: `deadLinks` `{from, raw, line, archived}`; `ambiguousLinks` `{from, raw, line, candidates, archived}`; `orphans` `{path, index, archived}` (`index` null when no index is above the page); `unreachableIndexes` `{path, archived}`; `lowConfidence` `{path, confidence, archived}`; `stale` `{path, updated, ageDays, archived}` (`ageDays` null when `updated` is not a real date). `counts` holds each list's length. `rootIndex` is `"index.md"` or `null`.
+- Search: at most `MAX_RESULTS` results (`truncated:true` when more matched), each with at most `MAX_SNIPPETS` snippet lines (`src/search.js`), each at most 200 characters.
+
+### Page AST
+
+The markdown subset and its limits (nesting depth `MAX_NESTING`, leading tabs expanded to 4-column stops) are described under Rendering in `docs/features.md`.
+
+`blocks` is the renderer's input. Block nodes: `{t:'h', level, id, c}`, `{t:'p', c}`, `{t:'pre', lang, text}`, `{t:'ul'|'ol', tight, start?, items:[[block]]}` (the renderer ignores an `ol` node's `start`: every list numbers from 1), `{t:'quote', c:[block]}`, `{t:'table', align:[left|center|right|null], head:[cell], rows:[[cell]]}` (a cell is an inline list), `{t:'hr'}`. Inline nodes: `{t:'text', v}`, `{t:'code', v}`, `{t:'em'|'strong'|'del', c}`, and links:
+
+```jsonc
+{ "t": "link", "form": "wiki|md|auto", "raw": "[[x]]", "line": 12, "c": [/* label inlines */],
+  "ref": "x",               // wiki form: the text inside [[ ]]
+  "href": "dir/x.md",       // md/auto form: the destination (never entity-decoded)
+  "kind": "page|ambiguous|dead|external|anchor|outside|blocked",
+  "target": "global/x.md",  // kind page
+  "candidates": ["…"] }     // kind ambiguous
+```
+
+### Errors
+
+Real HTTP statuses with `{error, code}` (these are not MCP routes, so the `{result}` rule does not apply):
+
+| Status | `code` | When |
+|---|---|---|
+| 400 | `SOURCE_REQUIRED` | `source` missing on `tree`/`page`/`lint` |
+| 400 | `PATH_INVALID` | `path` missing or fails `validateRelPath` |
+| 400 | `QUERY_INVALID` | `q` missing, or under 2 / over 200 characters after trimming |
+| 404 | `SOURCE_UNKNOWN` | no listed source has that id |
+| 404 | `NOT_FOUND` | no such page |
+| 403 | `PATH_ESCAPES` | `path` resolves (through a symlink) outside the source root |
+| 400 | `URL_INVALID` | the request URL cannot be parsed (any path) |
+| 500 | `INTERNAL` | an unexpected server error; the body is always `{error:"internal error", code:"INTERNAL"}`, never the exception text |
+
+Any method other than `GET`/`HEAD` on any path except `/api/mcp` is `405` with `allow: GET, HEAD`. Unknown paths are `404 {error}`.
+
+### Headers
+
+Every response — browser API, static, `/api/health`, `/api/mcp`, and every 400/404/405/413/500 — carries:
+
+- `x-content-type-options: nosniff`
+- `content-security-policy: default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'`
+
+So `frontend/` may contain no inline `<script>`, `<style>` or `style=` attribute. Static assets add `content-type` (`text/html`, `text/javascript`, `text/css`, each `; charset=utf-8`) and `cache-control: no-cache`. Only `/` (→ `index.html`) and flat names matching `^/[a-z0-9-]+\.(html|js|css)$` that exist in `frontend/` are served.

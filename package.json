@@ -1,9 +1,9 @@
 {
   "name": "code-karpathy-wiki",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
-  "description": "LLM Wiki conventions plus a read-only MCP backend over the conductor's .conduct/wiki/ — a code-conductor plugin",
+  "description": "LLM Wiki conventions plus a read-only MCP backend and browser page over the conductor's .conduct/wiki/ and project .wiki/ dirs — a code-conductor plugin",
   "scripts": {
     "start": "node server.js",
     "test": "node tests/run.mjs"
