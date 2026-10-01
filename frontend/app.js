@@ -25,6 +25,9 @@ function el(tag, props = {}, children = []) {
   return e;
 }
 
+// Native replaceChildren() stringifies null to a "null" text node; el() skips it.
+const present = (nodes) => nodes.filter((c) => c != null && c !== false);
+
 async function api(path) {
   const res = await fetch(path, { headers: { accept: 'application/json' } });
   const body = await res.json().catch(() => ({}));
@@ -164,7 +167,7 @@ async function showPage(source, rel) {
     fm.updated ? el('span', { class: 'chip' }, [`updated: ${fm.updated}`]) : null,
     d.stale ? el('span', { class: 'chip warn' }, ['stale']) : null,
   ]);
-  main.replaceChildren(
+  main.replaceChildren(...present([
     el('nav', { class: 'crumbs' }, crumbs),
     chips,
     d.archived ? el('div', { class: 'banner archived' }, ['Archived page — retired or superseded, not in the recall path.']) : null,
@@ -177,7 +180,7 @@ async function showPage(source, rel) {
         ? el('ul', {}, d.backlinks.map((b) => el('li', {}, [el('a', { href: pageHref(source, b.path) }, [b.title]), ' ', el('span', { class: 'muted' }, [b.path])])))
         : el('p', { class: 'muted' }, ['No page links here.']),
     ]),
-  );
+  ]));
   document.title = `${d.title} — Wiki`;
   main.scrollTop = 0;
   markActive(source, rel);
@@ -216,7 +219,7 @@ async function showHealth(source) {
   for (const a of counts.querySelectorAll('a')) {
     a.addEventListener('click', (e) => { e.preventDefault(); document.getElementById(`sec-${a.getAttribute('href').slice(1)}`)?.scrollIntoView(); });
   }
-  main.replaceChildren(
+  main.replaceChildren(...present([
     el('h1', {}, [`Health — ${labelOf(source)}`]),
     el('p', { class: 'muted' }, [d.rootIndex ? `Root index: ${d.rootIndex}. ` : 'No root index.md. ', `Stale after ${d.staleAfterDays} days.`]),
     d.truncated ? el('div', { class: 'banner' }, ['The walk hit its entry cap: these results cover only part of the tree.']) : null,
@@ -226,7 +229,7 @@ async function showHealth(source) {
       el('p', { class: 'muted' }, [blurb]),
       d[k].length ? el('ul', {}, d[k].map((x) => el('li', { class: x.archived ? 'archived' : null }, item(source, x)))) : el('p', { class: 'muted' }, ['None.']),
     ])),
-  );
+  ]));
   document.title = `Health — ${labelOf(source)} — Wiki`;
   main.scrollTop = 0;
   markActive(source, '');
