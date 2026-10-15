@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { Wikis } from '@/lib/data';
 import type { Route } from '@/lib/route';
-import { sourceStatus } from '@/lib/tree';
+import { sourceStatus, type DirState } from '@/lib/tree';
 import type { Source } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { RouteLink } from './RouteLink';
@@ -18,10 +18,12 @@ type Props = {
   loadError: unknown;
   reloading: boolean;
   onReload: () => void;
+  dirs: DirState;
+  onToggleDir: (key: string) => void;
   searchRef?: Ref<HTMLInputElement>;
 };
 
-export function Sidebar({ route, wikis, loadError, reloading, onReload, searchRef }: Props) {
+export function Sidebar({ route, wikis, loadError, reloading, onReload, dirs, onToggleDir, searchRef }: Props) {
   return (
     <nav aria-label="Wikis" className="flex min-h-full flex-col gap-3 px-2 py-3">
       <div className="flex items-start gap-1.5">
@@ -38,7 +40,9 @@ export function Sidebar({ route, wikis, loadError, reloading, onReload, searchRe
         </Button>
       </div>
       {wikis ? (
-        wikis.sources.map((s) => <SourceSection key={s.id} source={s} result={wikis.trees[s.id] ?? {}} route={route} />)
+        wikis.sources.map((s) => (
+          <SourceSection key={s.id} source={s} result={wikis.trees[s.id] ?? {}} route={route} dirs={dirs} onToggleDir={onToggleDir} />
+        ))
       ) : loadError ? (
         <Alert variant="destructive">
           <AlertDescription>
@@ -64,7 +68,9 @@ export function Sidebar({ route, wikis, loadError, reloading, onReload, searchRe
   );
 }
 
-function SourceSection({ source, result, route }: { source: Source; result: Wikis['trees'][string]; route: Route }) {
+type SectionProps = { source: Source; result: Wikis['trees'][string]; route: Route; dirs: DirState; onToggleDir: (key: string) => void };
+
+function SourceSection({ source, result, route, dirs, onToggleDir }: SectionProps) {
   const { tree, error, truncated } = result;
   const status = sourceStatus(tree, error);
   const healthActive = route.view === 'health' && route.source === source.id;
@@ -101,7 +107,7 @@ function SourceSection({ source, result, route }: { source: Source; result: Wiki
         </Alert>
       )}
       {status === 'empty' && <p className="px-1 text-sm text-muted-foreground">No pages yet.</p>}
-      {status === 'tree' && tree && <SourceTree source={source.id} tree={tree} active={route} />}
+      {status === 'tree' && tree && <SourceTree source={source.id} tree={tree} active={route} open={dirs.open} onToggle={onToggleDir} />}
     </section>
   );
 }

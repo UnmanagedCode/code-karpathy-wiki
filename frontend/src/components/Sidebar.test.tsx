@@ -1,9 +1,11 @@
+import { useState } from 'react';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from '@/lib/api';
 import type { Wikis } from '@/lib/data';
 import type { Route } from '@/lib/route';
+import { EMPTY_DIRS, openAncestors, seedDirs, toggleDir } from '@/lib/tree';
 import { DEMO_TREE, ORCH_TREE, SOURCES, dir } from '@/test/fixtures';
 import { Sidebar } from './Sidebar';
 
@@ -12,8 +14,26 @@ const WIKIS: Wikis = {
   trees: { orchestrator: { tree: ORCH_TREE.tree, truncated: false }, 'p:demo': { tree: DEMO_TREE.tree, truncated: true } },
 };
 
+// Holds the directory state the way App does: seeded from the trees, ancestors of the active page opened.
+function Harness({ route, wikis }: { route: Route; wikis: Wikis }) {
+  const [dirs, setDirs] = useState(() => {
+    const seeded = seedDirs(EMPTY_DIRS, wikis.trees);
+    return route.view === 'page' ? openAncestors(seeded, route.source, route.path) : seeded;
+  });
+  return (
+    <Sidebar
+      route={route}
+      wikis={wikis}
+      loadError={null}
+      reloading={false}
+      onReload={vi.fn()}
+      dirs={dirs}
+      onToggleDir={(key) => setDirs((d) => toggleDir(d, key))}
+    />
+  );
+}
 function renderSidebar(route: Route, wikis: Wikis = WIKIS) {
-  return render(<Sidebar route={route} wikis={wikis} loadError={null} reloading={false} onReload={vi.fn()} />);
+  return render(<Harness route={route} wikis={wikis} />);
 }
 const home: Route = { view: 'page', source: 'orchestrator', path: 'index.md' };
 const disclosure = (name: string) => screen.getByRole('button', { name, hidden: true });

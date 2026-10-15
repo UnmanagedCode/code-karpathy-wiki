@@ -3,9 +3,34 @@ import userEvent from '@testing-library/user-event';
 import { Toaster } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
-import { BASE_ROUTES, LINT, SEARCH, json, page, stubFetch } from './test/fixtures';
+import { WIDE_QUERY } from './components/AppShell';
+import { TOUCH_QUERY } from './lib/textEntry';
+import { BASE_ROUTES, LINT, ORCH_TREE, SEARCH, SOURCES, dir, json, page, stubFetch } from './test/fixtures';
 
 const at = (url: string) => history.replaceState(null, '', url);
+
+// The viewport as AppShell's breakpoint sees it (wide shows the sidebar pane, narrow the drawer), and whether
+// it is touch-primary (cc's modal focus then opens a drawer on its content, not on a text field).
+function viewport(wide: boolean, touch = false) {
+  vi.stubGlobal('matchMedia', (query: string) => ({
+    matches: query === WIDE_QUERY ? wide : query === TOUCH_QUERY ? touch : false,
+    media: query,
+    onchange: null,
+    addEventListener() {},
+    removeEventListener() {},
+    addListener() {},
+    removeListener() {},
+    dispatchEvent: () => false,
+  }));
+}
+
+function deferred<T>() {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((r) => { resolve = r; });
+  return { promise, resolve };
+}
+
+const disclosure = (scope: HTMLElement, name: string) => within(scope).getByRole('button', { name, hidden: true });
 const mainEl = () => document.getElementById('main')!;
 
 beforeEach(() => at('/'));
@@ -228,8 +253,9 @@ describe('App', () => {
     expect(await within(nav).findByRole('link', { name: 'a' })).toBeTruthy();
   });
 
-  // Invariant: "/" focuses the search box, except while typing in a text field.
+  // Invariant: on a wide viewport, "/" focuses the pane's search box, except while typing in a text field.
   it('focuses search on /', async () => {
+    viewport(true);
     const user = userEvent.setup();
     stubFetch({ ...BASE_ROUTES, 'api/page?source=orchestrator&path=index.md': page() });
     render(<App />);
@@ -252,5 +278,123 @@ describe('App', () => {
     await user.keyboard('{Enter}');
     expect(document.activeElement).toBe(mainEl());
     expect(location.hash).toBe('');
+  });
+
+  // Invariant: below the md breakpoint (pane hidden), "/" opens the drawer and focuses its search box, even where the
+  // drawer otherwise opens on its content (touch); with the drawer open, it refocuses it.
+  it('focuses the drawer search on / when the pane is hidden', async () => {
+    viewport(false, true);
+    const user = userEvent.setup();
+    stubFetch({ ...BASE_ROUTES, 'api/page?source=orchestrator&path=index.md': page() });
+    render(<App />);
+    await screen.findAllByRole('link', { name: 'a' });
+    // Opened from the menu, the touch drawer focuses its content, not the search box.
+    await user.click(screen.getByRole('button', { name: 'Open navigation' }));
+    const menuDrawer = await screen.findByRole('dialog', { name: 'Code Wiki' });
+    await waitFor(() => expect(document.activeElement).toBe(menuDrawer));
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    (document.activeElement as HTMLElement | null)?.blur();
+    await user.keyboard('/');
+    const drawer = await screen.findByRole('dialog', { name: 'Code Wiki' });
+    const box = within(drawer).getByRole('searchbox', { name: 'Search' }) as HTMLInputElement;
+    await waitFor(() => expect(document.activeElement).toBe(box));
+    expect(box.value).toBe('');
+    within(drawer).getByRole('link', { name: 'a' }).focus();
+    await user.keyboard('/');
+    expect(document.activeElement).toBe(box);
+  });
+
+  // Invariant: directory open-state is shared by the pane and the drawer, and survives the drawer closing.
+  it('keeps directory open-state across the drawer closing and in the pane', async () => {
+    viewport(false);
+    const user = userEvent.setup();
+    stubFetch({ ...BASE_ROUTES, 'api/page?source=orchestrator&path=index.md': page() });
+    render(<App />);
+    await screen.findAllByRole('link', { name: 'a' });
+    await user.click(screen.getByRole('button', { name: 'Open navigation' }));
+    let drawer = await screen.findByRole('dialog', { name: 'Code Wiki' });
+    expect(disclosure(drawer, 'fam').getAttribute('aria-expanded')).toBe('false');
+    await user.click(disclosure(drawer, 'fam'));
+    expect(disclosure(drawer, 'fam').getAttribute('aria-expanded')).toBe('true');
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    const pane = screen.getAllByRole('navigation', { name: 'Wikis' })[0];
+    expect(disclosure(pane, 'fam').getAttribute('aria-expanded')).toBe('true');
+    await user.click(screen.getByRole('button', { name: 'Open navigation' }));
+    drawer = await screen.findByRole('dialog', { name: 'Code Wiki' });
+    expect(disclosure(drawer, 'fam').getAttribute('aria-expanded')).toBe('true');
+  });
+
+  // Invariant: after ↻, a top-level directory new to the tree starts open (archived ones closed), and the user's toggles stay.
+  it('seeds only new directories on reload and keeps the user toggles', async () => {
+    const user = userEvent.setup();
+    let reloaded = false;
+    const grown = {
+      ...ORCH_TREE,
+      tree: {
+        ...ORCH_TREE.tree,
+        dirs: [
+          ...ORCH_TREE.tree.dirs,
+          dir({ name: 'workspaces', path: 'workspaces', pages: [{ path: 'workspaces/w.md', name: 'w', title: 'W' }] }),
+          dir({ name: 'attic', path: 'attic', archived: true, pages: [{ path: 'attic/z.md', name: 'z', title: 'Z' }] }),
+        ],
+      },
+    };
+    stubFetch({
+      ...BASE_ROUTES,
+      'api/tree?source=orchestrator': () => json(reloaded ? grown : ORCH_TREE),
+      'api/page?source=orchestrator&path=index.md': page(),
+    });
+    render(<App />);
+    await screen.findByRole('link', { name: 'a' });
+    const nav = screen.getByRole('navigation', { name: 'Wikis' });
+    await user.click(disclosure(nav, 'global'));
+    await user.click(disclosure(nav, 'fam'));
+    expect(disclosure(nav, 'global').getAttribute('aria-expanded')).toBe('false');
+    reloaded = true;
+    await user.click(screen.getByRole('button', { name: 'Reload the trees' }));
+    await waitFor(() => expect(disclosure(nav, 'workspaces').getAttribute('aria-expanded')).toBe('true'));
+    expect(disclosure(nav, 'attic').getAttribute('aria-expanded')).toBe('false');
+    expect(disclosure(nav, 'global').getAttribute('aria-expanded')).toBe('false');
+    expect(disclosure(nav, 'fam').getAttribute('aria-expanded')).toBe('true');
+  });
+
+  // Invariant: overlapping tree loads apply only the latest one, whichever resolves last, and ↻ stays busy until it lands.
+  it('drops superseded tree loads in either completion order', async () => {
+    for (const order of ['stale-last', 'stale-first'] as const) {
+      const loads = [deferred<Response>(), deferred<Response>()];
+      let n = 0;
+      const STALE = { sources: [{ id: 'orchestrator', kind: 'orchestrator', label: 'Stale' }], conductor: false };
+      stubFetch({
+        ...BASE_ROUTES,
+        'api/sources': () => loads[n++].promise,
+        'api/page?source=orchestrator&path=index.md': page(),
+      });
+      const { unmount } = render(<App />);
+      const reload = screen.getByRole('button', { name: 'Reload the trees' });
+      await userEvent.click(reload);
+      await waitFor(() => expect(n).toBe(2));
+      expect((reload as HTMLButtonElement).disabled).toBe(true);
+      if (order === 'stale-last') {
+        loads[1].resolve(json(SOURCES));
+        await screen.findByRole('region', { name: 'demo' });
+        await waitFor(() => expect((reload as HTMLButtonElement).disabled).toBe(false));
+        loads[0].resolve(json(STALE));
+      } else {
+        loads[0].resolve(json(STALE));
+        await new Promise((r) => setTimeout(r, 20));
+        expect(screen.queryByRole('region', { name: 'Stale' }), order).toBeNull();
+        expect((reload as HTMLButtonElement).disabled, order).toBe(true);
+        loads[1].resolve(json(SOURCES));
+        await screen.findByRole('region', { name: 'demo' });
+      }
+      await new Promise((r) => setTimeout(r, 20));
+      expect(screen.queryByRole('region', { name: 'Stale' }), order).toBeNull();
+      expect(screen.getByRole('region', { name: 'Orchestrator' }), order).toBeTruthy();
+      expect((reload as HTMLButtonElement).disabled, order).toBe(false);
+      unmount();
+      vi.unstubAllGlobals();
+    }
   });
 });
