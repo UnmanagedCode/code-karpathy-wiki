@@ -4,7 +4,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { createServer } from '../server.js';
 import { _setDistDir } from '../src/static.js';
-import { freshWiki, cleanup, resetEnv, useProjects, freshProjectWiki, treeDigest, fixtureDist } from './_helpers.mjs';
+import { freshWiki, cleanup, resetEnv, useProjects, freshProjectWiki, treeDigest, fixtureDist, writeTree } from './_helpers.mjs';
 
 const CSP = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
 
@@ -67,6 +67,23 @@ test('static: traversal, sources and maps are 404', async () => {
       '/node_modules/react/index.js', '/frontend/dist/index.html', '/assets/index-Ab_9-x.js.map', '/assets/sub/x.js']) {
       assert.equal(await rawGet(base, p), 404, p);
     }
+  });
+});
+
+// Invariant: the static allowlist itself refuses names outside its rule. Each decoy exists in the dist, so its 404
+// comes from ASSET_RE, not from a missing file; each would be served by a loosened rule such as /^\/(.+\.(html|js|css))$/.
+test('static: files in the dist that the allowlist refuses are 404', async () => {
+  await withServer(async ({ root, base }) => {
+    const dist = await fixtureDist(root);
+    _setDistDir(dist);
+    const decoys = ['a.b.js', 'x/y.js', 'assets/sub/z.css', 'assets/index-Ab_9-x.js.css', '.hidden.js', '_under.js', 'assets/-dash.js'];
+    await writeTree(dist, Object.fromEntries(decoys.map((d) => [d, 'decoy'])));
+    const LOOSE = /^\/(.+\.(html|js|css))$/;
+    for (const d of decoys) {
+      assert.match(`/${d}`, LOOSE, `${d} is a decoy a loosened rule would serve`);
+      assert.equal(await rawGet(base, `/${d}`), 404, d);
+    }
+    assert.equal(await rawGet(base, '/assets/index-Ab_9-x.js'), 200, 'the allowed neighbour is served');
   });
 });
 
