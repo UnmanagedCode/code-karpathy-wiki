@@ -57,7 +57,9 @@ export function scopeOf(kind, rel) {
 // Normalise base + target; null when it climbs out of the source root.
 function within(base, target) {
   let p = posix.normalize(base === '' ? target : `${base}/${target}`);
-  p = p.replace(/\/+$/, '');
+  let end = p.length;
+  while (end > 0 && p[end - 1] === '/') end--;
+  p = p.slice(0, end);
   if (p === '.') p = '';
   if (p === '..' || p.startsWith('../') || p.startsWith('/')) return null;
   return p;
