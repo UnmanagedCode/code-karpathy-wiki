@@ -23,7 +23,7 @@ export function AppShell({ title, sidebar, mainRef, children }: Props) {
           e.preventDefault();
           mainRef.current?.focus();
         }}
-        className="sr-only z-50 rounded-md bg-background px-3 py-2 text-sm shadow focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:ring-[3px] focus:ring-ring/50 focus:outline-none"
+        className="sr-only z-50 rounded-md bg-background px-3 py-2 text-sm shadow focus:not-sr-only focus:fixed focus:top-2 focus:left-1/2 focus:-translate-x-1/2 focus:ring-[3px] focus:ring-ring/50 focus:outline-none"
       >
         Skip to content
       </a>
