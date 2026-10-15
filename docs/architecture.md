@@ -15,20 +15,38 @@ src/snapshot.js    loadSnapshot(source): walk + parse cache + resolution + backl
 src/lint.js        lintSnapshot(snap, {now}); STALE_AFTER_DAYS
 src/search.js      queryTerms(q), search(snaps, terms); MAX_RESULTS, MAX_SNIPPETS
 src/browse.js      handle(pathname, searchParams) -> {status, body} | null
-src/static.js      serveAsset(pathname) -> {status, headers, body} | null
-frontend/          index.html, app.js (router + views), render.js (AST -> DOM), tree.js (sidebar source status), styles.css
-tests/             node:test via tests/run.mjs
+src/static.js      serveAsset(pathname) -> {status, headers, body} | null, from frontend/dist; ASSET_RE, _setDistDir()
+frontend/          the browser page: React + Vite + Tailwind v4 + shadcn/Radix, built into frontend/dist (gitignored)
+  index.html       host bridge, host theme, theme-init.js, module entry — in that order
+  public/          theme-init.js: standalone, follow the OS theme (copied to dist as-is)
+  src/main.tsx     entry: <App/> + sonner's <Toaster/>
+  src/App.tsx      route (query string), legacy-hash rewrite, sidebar data + ↻, title, `/` shortcut
+  src/lib/         render.tsx (AST -> React), route.ts, api.ts (ApiError), data.ts (loaders, useApiData),
+                   tree.ts (sidebar rules), highlight.tsx, safeHref.ts, theme.ts, types.ts;
+                   utils.ts, modalFocus.ts, textEntry.ts copied from code-conductor
+  src/components/  AppShell (two panes / phone drawer), Sidebar, SourceTree, SearchBox, RouteLink, ErrorState;
+                   ui/ = shadcn components copied from code-conductor (owned here, never synced)
+  src/views/       PageView, HealthView (HEALTH_SECTIONS), SearchView
+  src/index.css    Tailwind, cc's @theme inline mapping, .wiki-md content styles
+  src/cc-theme-fallback.css  standalone snapshot of cc's tokens, in @layer base
+tests/             node:test via tests/run.mjs; frontend/src/**/*.test.ts(x) via vitest
 ```
 
 The layers are split so tests can hit each one without the one below: `wiki.readIndex` for domain behaviour, `mcp.handle` for the envelope, a real socket only for transport. `src/projects.js` exists to isolate the single network call behind a swappable fetcher, which keeps the whole suite offline.
 
 The browser stacks the same way: `sources` → `snapshot` (disk) → `links` → `lint`/`search` → `browse` (HTTP-shaped, no socket) → `server.js`. `markdown`, `links`, `lint` and `search` are pure and tested on in-memory data (`buildSnapshot(source, {rel: text})`); `snapshot`/`sources` on tmp fixture trees; `browse` and `static` as handlers.
 
-## Zero dependencies — a hard constraint
+## No runtime dependencies
 
-`package.json` has **no `dependencies` key**, and `tests/manifest.test.mjs` asserts it stays that way. This plugin's Plugin Library entry in code-conductor has no `postClone` hook, so a fresh clone never runs `npm install` — a single dependency would break it on arrival. Hence `node:http` rather than express, and `node:test` rather than a test framework.
+`package.json` has **no `dependencies` key**, and `tests/manifest.test.mjs` asserts it: the backend is `node:http` and its suite `node:test`. Everything the UI needs is a `devDependency` (the set code-conductor's plugin-UI recipe lists, installed from the ranges cc's own `package.json` declares), bundled into `frontend/dist` at build time, so nothing of it loads at runtime.
 
-Two things express was doing for us that `server.js` now does by hand:
+- **Built on install.** `npm install` with no arguments installs the devDependencies, then runs `prepare` (`vite build --config frontend/vite.config.ts`). cc's Library entry for this plugin (`DEFAULT_ENTRIES` in code-conductor's `src/plugins/library.ts`) sets `postClone` and `postPull` to `npm install`, so Install builds the UI and Update rebuilds it.
+- **cc runs the hook verbatim** (`runHookCommand`): plain `npm install`, no `--omit=dev` or `--ignore-scripts`, with cc's own `process.env`. `NODE_ENV=production` or `npm_config_omit=dev` in that environment skips the devDependencies and the build fails; nothing in the plugin can detect it before then.
+- **A clean checkout after install.** Vite writes only `frontend/dist` and `node_modules/.vite`; `package-lock.json` (which `npm install` may rewrite) is untracked. `.gitignore` covers all three, so cc's Update (`git pull --ff-only`) never meets a dirty tree.
+- **Unbuilt still runs.** Without `frontend/dist/index.html` the backend starts, logs `UI not built`, answers the page with 503, and serves the API and MCP endpoints normally.
+- `engines.node` is `>=22.12.0`, the floor of Vite 8 and Vitest 5.
+
+Two things express would do that `server.js` does by hand:
 
 - **Drain the request body on every path that doesn't read it** (`req.resume()`); an unread body stalls the keep-alive socket. This is the classic express→`node:http` port bug.
 - **Route on `new URL(req.url, …).pathname`**, never on `req.url` — that string carries the query string.
@@ -96,9 +114,12 @@ Block quotes and list items recurse once per level, and emphasis recurses once p
 The host opens the page in a full-page iframe with **no sandbox, same-origin with the host**, and the host has no auth. A script injected through a wiki page could therefore call the host's own `/api/*` — spawn sessions, run bash. So:
 
 - The server parses markdown into a JSON AST; raw HTML is never markup (literal text; comments dropped), and link destinations are never entity-decoded.
-- `frontend/render.js` builds DOM from a fixed node-type → tag map (`ALLOWED_TAGS`), text only via `createTextNode`, attributes only `href`/`id`/`class`/`title`/`target`/`rel`/`data-*`. Unknown node types are dropped. An `external` href is re-validated with `new URL()` to `http:`/`https:`; `page` hrefs are `#/page/…` built with `encodeURIComponent`. Heading ids are prefixed `h-` so page content cannot clobber app element ids.
-- No `innerHTML`, `outerHTML`, `insertAdjacentHTML`, `document.write`, `eval` or `Function` anywhere in `frontend/` (asserted by `tests/frontend.test.mjs`).
-- The CSP on every browser response is the second layer: no inline script or style, nothing from another origin.
+- `frontend/src/lib/render.tsx` builds React elements through one internal `h(tag, attrs, children, handlers?)` from a fixed node-type → tag map. Its exported constants are the single source of truth, imported by the tests: `ALLOWED_TAGS` (`h` throws on any other tag), `ALLOWED_ATTRS` (React prop names `href`/`id`/`className`/`title`/`target`/`rel`) plus `DATA_ATTR_RE` (`data-*`), and `ALIGN` (table cell alignment classes). Content is only ever a text child (`String(v ?? '')`). Unknown node types are dropped; a non-array `items`/`c`/`rows`/`candidates` counts as empty. The AST types in `lib/types.ts` are advisory: every node is re-checked at runtime, because a forged AST must stay safe.
+- **No style from content.** `style` and `dangerouslySetInnerHTML` are outside the allowlist, so `h` can never pass them, and no node type maps to `<style>`. This matters because the CSP allows inline styles (`'unsafe-inline'`, for Radix and sonner): a content-driven `style` would be live CSS, an exfiltration surface. `render.test.tsx` feeds forged nodes carrying `style`, `attrs.style`, `dangerouslySetInnerHTML`, `{t:'style'}` and `{t:'html'}` and asserts no `[style]`, `style`, `script`, `img` or `iframe` comes out.
+- The only event handlers are `onClick`s the renderer attaches itself (page links, ambiguous candidates, anchors), passed as `h`'s separate trusted argument, never read from the AST.
+- Hrefs: `external` goes through `safeHref` (`lib/safeHref.ts`), which parses with **no base** so only an absolute `http:`/`https:` URL passes (a relative or `//host` string is refused) and a refused link renders as an inert `<span>`. `page` and candidate hrefs are `routeHref(...)` (`?view=page&…`, built with `URLSearchParams`). Anchors are `#h-<slug>` and scroll on click without changing the hash. Heading ids are prefixed `h-` so page content cannot clobber app element ids.
+- No `innerHTML`, `outerHTML`, `insertAdjacentHTML`, `document.write`, `eval`, `Function`, `dangerouslySetInnerHTML`, `location.hash` assignment, `window.parent` or `code-conductor:` key anywhere in the UI source (asserted by `tests/frontend.test.mjs`).
+- The CSP on every browser response is the second layer: no inline script, nothing from another origin (see `docs/protocol.md` → Headers).
 
 ## Test patterns
 
@@ -108,7 +129,10 @@ The host opens the page in a full-page iframe with **no sandbox, same-origin wit
 
 Browser test patterns:
 
-- `tests/_fakedom.mjs` — a minimal `createElement`/`createTextNode`/`setAttribute`/`append`/`addEventListener` stand-in, injected as `render.js`'s `doc`. Render tests assert the tag and attribute allowlists over everything emitted, including from forged ASTs.
+- **UI tests run in vitest + happy-dom** (`npm run test:web`, config `frontend/vitest.config.ts`), colocated as `frontend/src/**/*.test.ts(x)`. The network is mocked at `fetch` (`stubFetch` in `frontend/src/test/fixtures.ts`, which routes canned responses by URL); no unit test starts a server. `npm test` runs the node suite, then `tsc -p frontend`, then vitest.
+- `render.test.tsx` renders `<WikiContent>` and asserts the tag, attribute and href allowlists over everything emitted, including from forged ASTs. `public/theme-init.js` is tested by `vi.resetModules()` plus a dynamic import with `matchMedia` stubbed (`test/globals.d.ts` declares the module for `tsc`).
+- `_setDistDir(dir)` (`src/static.js`) serves a fixture dist (`fixtureDist(root)` in `tests/_helpers.mjs`); `resetEnv()` restores the real one. `tests/dist.test.mjs` checks the real build that `npm install` produced, and serves it through `createServer()` on port 0.
+- `tests/frontend.test.mjs` and `tests/frontend-theme.test.mjs` scan the UI source as text (`tests/_frontendFiles.mjs`; test files excluded, as they carry hostile strings on purpose): sinks and root-relative URLs, `index.html`'s head order, the fallback tokens covering `@theme inline` in both modes, no literal colours in the plugin's own code (`components/ui/` copies exempt), and no theme control outside `theme-init.js`.
 - `treeDigest(dir)` (`tests/_helpers.mjs`) — sorted lstat + sha256 fingerprint of a tree. The no-write test sweeps every browser route and static path with GET and every write method and requires identical digests before and after.
 - `freshProjectWiki(root, name, files)` builds `<root>/<name>/.wiki/` and returns the host row to feed `useProjects`.
 - `tests/lint.test.mjs` has a **live-shaped fixture** (root → `global/` → families + `archive/`, `workspaces/W/`, `projects/P/`, page-relative `[[../fam/x]]`, backticked syntax examples) that must lint clean — the false-positive tripwire.

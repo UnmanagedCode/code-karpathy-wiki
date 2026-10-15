@@ -7,7 +7,7 @@
 | `GET`/`HEAD` | `/api/health` | readiness/liveness probe → `200 {"ok":true}` |
 | `POST` | `/api/mcp` | the single MCP tool endpoint |
 | `GET`/`HEAD` | `/api/sources`, `/api/tree`, `/api/page`, `/api/lint`, `/api/search` | the browser API — see [Browser API](#browser-api) |
-| `GET`/`HEAD` | `/`, `/<name>.(html\|js\|css)` | the browser page's static assets |
+| `GET`/`HEAD` | `/`, `/index.html`, `/theme-init.js`, `/assets/<name>.(js\|css)` | the built browser page, from `frontend/dist` — see [Static assets](#static-assets) |
 
 Manifest: `backend {start:"node server.js", healthPath:"/api/health"}`, `mcp {endpoint:"/api/mcp"}`, `frontend {path:"/", navLabel:"Code Wiki"}`. `mcp` and `frontend` each require `backend`. `frontend` accepts only `path` (must start with `/`) and `navLabel` (non-empty); any other key marks the plugin `invalid`.
 
@@ -86,7 +86,7 @@ That is the whole set. In particular these are **not** refusals:
 
 ### Mounting
 
-The host mounts the plugin at `/plugins/code-wiki/` and proxies **every** path and method to this backend with the prefix stripped (`/plugins/code-wiki/api/tree?source=x` arrives as `/api/tree?source=x`); a bare `/plugins/code-wiki` is redirected to the trailing-slash form. The nav entry opens the backend root in a full-page iframe, so `frontend.path` is `/`. **Every URL in `frontend/` must be relative with no leading `/`** (`app.js`, `api/tree?…`) — a leading `/` would hit the host itself. `tests/frontend.test.mjs` scans for violations.
+The host mounts the plugin at `/plugins/code-wiki/` and proxies **every** path and method to this backend with the prefix stripped (`/plugins/code-wiki/api/tree?source=x` arrives as `/api/tree?source=x`); a bare `/plugins/code-wiki` is redirected to the trailing-slash form. The nav entry opens the backend root in a full-page iframe, so `frontend.path` is `/`. **Every URL in `frontend/` must be relative with no leading `/`** (`./assets/…`, `api/tree?…`, `?view=…`) — a leading `/` would hit the host itself. The only exceptions are the two host-served URLs in `frontend/index.html`: `/pluginBridge.js` and `/pluginTheme.css` (which names the host's `/pluginTheme/fonts/…`). `tests/frontend.test.mjs` scans `frontend/index.html`, `frontend/public/` and `frontend/src/` for violations; `tests/dist.test.mjs` checks the built `frontend/dist`.
 
 ### Routes
 
@@ -146,6 +146,28 @@ Any method other than `GET`/`HEAD` on any path except `/api/mcp` is `405` with `
 Every response — browser API, static, `/api/health`, `/api/mcp`, and every 400/404/405/413/500 — carries:
 
 - `x-content-type-options: nosniff`
-- `content-security-policy: default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'`
+- `content-security-policy: default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'` (`CSP` in `server.js`)
 
-So `frontend/` may contain no inline `<script>`, `<style>` or `style=` attribute. Static assets add `content-type` (`text/html`, `text/javascript`, `text/css`, each `; charset=utf-8`) and `cache-control: no-cache`. Only `/` (→ `index.html`) and flat names matching `^/[a-z0-9-]+\.(html|js|css)$` that exist in `frontend/` are served.
+| Directive | Admits | For |
+|---|---|---|
+| `script-src 'self'` | same-origin script files only: no inline script, no `eval` | the bundle, `theme-init.js`, the host's `/pluginBridge.js` |
+| `style-src 'self' 'unsafe-inline'` | same-origin stylesheets, plus `<style>` elements and `style` attributes | the bundle's CSS and the host's `/pluginTheme.css`; Radix (the phone drawer's scroll lock) and sonner (toasts) inject `<style>`. The renderer never emits a `style` attribute or `<style>` element from page content (pinned by `frontend/src/lib/render.test.tsx`) |
+| `font-src 'self'` | same-origin fonts | the host's Geist fonts, `/pluginTheme/fonts/…` |
+| `connect-src 'self'` | same-origin `fetch` | `api/…` |
+| `frame-ancestors 'self'` | framing by the same origin only | the conductor's iframe |
+
+Everything else (images, objects, frames, forms, `<base>`) is refused. `index.html` therefore carries no inline `<script>`, `<style>` or `style=` attribute, and no build output may reference a `data:` URL.
+
+### Static assets
+
+Served from `frontend/dist`, which `npm install` builds (the `prepare` script, `vite build`) and git ignores.
+
+| Path | Serves | When absent |
+|---|---|---|
+| `/`, `/index.html` | `index.html` | `503 text/plain; charset=utf-8` `UI not built — run npm install` (with the security headers); the server also logs `UI not built: … is missing` at start |
+| `/<name>.(html\|js\|css)`, `/assets/<name>.(html\|js\|css)` | that file (`theme-init.js`, Vite's `assets/index-<hash>.js` / `.css`) | `404 {error}` |
+
+- A path must match `ASSET_RE` (`src/static.js`): `^\/((?:assets\/)?[A-Za-z0-9][A-Za-z0-9_-]*\.(html|js|css))$` — one optional `assets/` segment, no dot beyond the extension, so no traversal and no source maps.
+- Responses add `content-type` (`text/html`, `text/javascript`, `text/css`, each `; charset=utf-8`) and `cache-control: no-cache`.
+- No SPA fallback: an unknown path is `404 {error}`. Standalone, the host URLs `/pluginBridge.js` and `/pluginTheme.css` are therefore 404s, which the page tolerates.
+- Routes are in the query string (`/?view=…`), so every route is served by `/`.

@@ -36,7 +36,9 @@ Read-only by design: there is no write tool. Pages are written by the conductor 
 
 ## Wiki browser (page)
 
-A read-only page for the human, opened from the **Wiki** entry in the conductor's app switcher (`frontend.navLabel`). Standalone it is served at `http://localhost:7200/`. Nothing in it writes: the backend has no write route, and every non-GET/HEAD request to a browser path is `405`.
+A read-only page for the human, opened from the **Code Wiki** entry in the conductor's app switcher (`frontend.navLabel`). Standalone it is served at `http://localhost:7200/`. Nothing in it writes: the backend has no write route, and every non-GET/HEAD request to a browser path is `405`.
+
+Embedded, the page uses the conductor's palette and fonts and follows its light/dark setting live (the sidebar toggle, or the OS while the conductor's theme is "system"). Standalone, it follows the OS setting, also live. It has no theme control of its own.
 
 ### Sources
 
@@ -53,9 +55,12 @@ A page that exists but cannot be read or parsed is still listed and opens with a
 
 ### Layout
 
-- **Sidebar** — a search box, then one tree per source (orchestrator first). Trees follow the directory structure; a directory's `index.md` is its landing page (click the directory name), not a child entry. Top-level directories start open. `global/archive/` is dimmed, italic, badged "archive — not in recall path", and starts collapsed. Each source has a **Health** link. ↻ reloads the trees.
+- **Sidebar** — a search box, then one tree per source (orchestrator first). Trees follow the directory structure; a directory's `index.md` is its landing page (click the directory name), not a child entry. Each directory has a disclosure arrow. Top-level directories start open. `global/archive/` is dimmed, italic, badged "archive — not in recall path", and starts collapsed. The current page is highlighted and every directory above it opens. Each source has a **Health** link. ↻ reloads the trees and the current view; if the reload fails, a toast says so and the trees on screen stay.
 - **Page** — breadcrumb, front-matter chips (`confidence`, `updated`, a `stale` badge), an archived banner for `global/archive/**`, a truncation notice past `MAX_PAGE_BYTES`, the rendered body, and **Backlinks**: every page with a resolved link (either form) to this one, excluding itself.
-- Routes are hash-based: `#/page/<sourceId>/<path>`, `#/health/<sourceId>`, `#/search?q=`. The default is the orchestrator's `index.md`.
+- **Phone** (narrower than Tailwind's `md`, 768px) — a top bar with a menu button and the view's title; the menu opens the sidebar as a drawer, which closes when a link in it navigates or on Escape. Wide tables and code blocks scroll inside themselves; the page never scrolls sideways.
+- **States** — skeleton placeholders while loading (announced to screen readers as Loading…, Checking…, Searching…); "Not found" (404) or "Error", with the message and its `code`, when a view fails; a sidebar that fails its first load shows the error with **Retry**.
+- **Routes** live in the query string: `?view=page&source=<sourceId>&path=<path>`, `?view=health&source=<sourceId>`, `?view=search&q=<query>`. With no `view`, the orchestrator's `index.md` is shown; an unknown `view` or a missing parameter is rewritten to that. Embedded, the route is mirrored into the conductor's URL (`#plugin/code-wiki/?view=…`). Hash links (`#/page/<sourceId>/<path>`, `#/health/<sourceId>`, `#/search?q=`) are accepted and rewritten in place to the query form.
+- **Keyboard** — `/` focuses the search box (unless a text field has focus); Enter searches (at least 2 characters, else a hint shows); a "Skip to content" link is first in tab order; directory disclosures are buttons (Enter/Space); every link, in-page anchors included, is focusable. Ctrl/Cmd/Shift-click or middle-click on any link opens it in a new tab or window.
 
 ### Link rules
 
@@ -87,7 +92,7 @@ Dead links render struck through; ambiguous links list their candidates as links
 
 ### Health
 
-Per source, from `#/health/<sourceId>`. Archive pages are checked too; their items are dimmed.
+Per source, from `?view=health&source=<sourceId>`. Archive pages are checked too; their items are dimmed. The counts at the top jump to their section.
 
 | Check | Definition |
 |---|---|
@@ -100,7 +105,7 @@ Per source, from `#/health/<sourceId>`. Archive pages are checked too; their ite
 
 ### Search
 
-The sidebar box searches every source (the API also takes a single `source`). The query is trimmed, 2–200 characters; whitespace-separated terms are matched **case-insensitively as substrings, all required**, over the raw page text including front matter. Results show source, title, path and up to `MAX_SNIPPETS` matching lines with the terms highlighted; title matches sort first, then hit count. At most `MAX_RESULTS` (`src/search.js`) results.
+The sidebar box searches every source (the API also takes a single `source`). The query is trimmed, 2–200 characters; whitespace-separated terms are matched **case-insensitively as substrings, all required**, over the raw page text including front matter. Results show source, title, path and up to `MAX_SNIPPETS` matching lines with the terms highlighted; title matches sort first, then hit count. No match reads "No pages match all of: …". At most `MAX_RESULTS` (`src/search.js`) results.
 
 ### Rendering
 

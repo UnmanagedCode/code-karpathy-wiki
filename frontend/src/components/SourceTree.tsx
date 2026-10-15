@@ -73,7 +73,7 @@ function DirNode({ node, inArchive = false, ...ctx }: { node: TreeNode; inArchiv
   const childrenId = useId();
   return (
     <li className={cn(node.archived && !inArchive && 'archived-item')}>
-      <div className="flex min-w-0 items-center gap-0.5">
+      <div className="flex min-w-0 flex-wrap items-center gap-0.5">
         <button
           type="button"
           aria-expanded={isOpen}
