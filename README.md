@@ -47,7 +47,7 @@ Under the conductor the backend is supervised: `$PORT`, `PROJECTS_ROOT` and `CON
 
 ## Technical description
 
-Conventions/scaffolds plus a supervised backend, `pluginApi: 1`. **No runtime dependencies**: the backend is `node:http` only, and its suite is `node:test`. The UI (React, Vite, Tailwind v4, shadcn/Radix components, lucide icons, sonner) is all `devDependencies`, built into `frontend/dist` by `npm install` (the `prepare` script); cc's Library entry runs `npm install` on Install and Update. It follows code-conductor's plugin-UI recipe (`docs/plugin-ui.md` in code-conductor): cc's theme and fonts from `/pluginTheme.css`, cc's light/dark followed live through `/pluginBridge.js`. Read-only: no write tools and no write routes. It's discovered as a plugin because it's a project directory containing `conductor.plugin.json`.
+Conventions/scaffolds plus a supervised backend, `pluginApi: 1`. **No runtime dependencies**: the backend is `node:http` only, and its suite is `node:test`. The UI (React, Vite, Tailwind v4, shadcn/Radix components, lucide icons, sonner) is all `devDependencies`, built into `frontend/dist` by `npm install` (the `prepare` script); cc's Library entry runs `npm install` on Install and Update. It meets code-conductor's plugin-UI host contract (`docs/plugin-ui.md` in code-conductor, Part 1 "Host contract" and Part 2 "Security"): cc's theme and fonts from `/pluginTheme.css`, cc's light/dark followed live through `/pluginBridge.js`. Its stack is that doc's optional Part 3 setup, the one cc's own `web/` uses. Read-only: no write tools and no write routes. It's discovered as a plugin because it's a project directory containing `conductor.plugin.json`.
 
 ```
 code-karpathy-wiki/
