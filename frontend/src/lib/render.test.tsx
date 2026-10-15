@@ -1,6 +1,6 @@
 import { fireEvent, render } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { ALLOWED_TAGS, WikiContent, type RenderCtx } from './render';
+import { ALLOWED_TAGS, MAX_RENDER_DEPTH, WikiContent, type RenderCtx } from './render';
 
 const txt = (v: string) => ({ t: 'text', v });
 const p = (...c: unknown[]) => ({ t: 'p', c });
@@ -175,5 +175,32 @@ describe('WikiContent', () => {
       expect(ev.defaultPrevented, JSON.stringify(mod)).toBe(false);
     }
     expect(onNavigate).not.toHaveBeenCalled();
+  });
+
+  // Invariant: rendering depth is bounded: a forged AST nested past MAX_RENDER_DEPTH renders (no stack overflow), cut off at the cap.
+  it('drops content nested past MAX_RENDER_DEPTH instead of overflowing the stack', () => {
+    const DEEP = 3000;
+    const chain = (wrap: (inner: unknown) => unknown, leaf: unknown, n: number) => {
+      let node = leaf;
+      for (let i = 0; i < n; i++) node = wrap(node);
+      return node;
+    };
+    const quotes = chain((c) => ({ t: 'quote', c: [c] }), p(txt('bottom')), DEEP);
+    const lists = chain((c) => ({ t: 'ul', items: [[c]] }), p(txt('bottom')), DEEP);
+    const ems = p(chain((c) => ({ t: 'em', c: [c] }), txt('bottom'), DEEP));
+    const links = p(chain((c) => link({ kind: 'dead', c: [c] }), txt('bottom'), DEEP));
+    for (const [name, blocks, tag] of [['quote', [quotes], 'blockquote'], ['list', [lists], 'ul'], ['em', [ems], 'em'], ['link', [links], 'span']] as const) {
+      const root = renderBlocks(blocks);
+      const n = root.querySelectorAll(tag).length;
+      expect(n, name).toBeGreaterThan(MAX_RENDER_DEPTH / 2 - 2);
+      expect(n, name).toBeLessThanOrEqual(MAX_RENDER_DEPTH + 1);
+      expect(root.textContent, name).not.toContain('bottom');
+      assertSafe(root);
+    }
+    // Nesting well past what the parser emits still renders whole.
+    const legit = renderBlocks([chain((c) => ({ t: 'quote', c: [c] }), p(chain((c) => ({ t: 'em', c: [c] }), txt('bottom'), 40)), 40)]);
+    expect(legit.querySelectorAll('blockquote').length).toBe(40);
+    expect(legit.querySelectorAll('em').length).toBe(40);
+    expect(legit.textContent).toBe('bottom');
   });
 });

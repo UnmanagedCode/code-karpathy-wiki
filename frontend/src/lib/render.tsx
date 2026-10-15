@@ -17,6 +17,12 @@ export const ALLOWED_TAGS = new Set([
 export const ALLOWED_ATTRS = new Set(['href', 'id', 'className', 'title', 'target', 'rel']);
 export const DATA_ATTR_RE = /^data-[a-z0-9-]+$/;
 export const ALIGN = new Set(['left', 'center', 'right']);
+/**
+ * How deep the renderer recurses (one level per nested block or inline). Content past it is dropped, so a forged
+ * AST cannot exhaust the stack. The parser's own output stays far below it: block and inline nesting are each
+ * capped at the backend's MAX_NESTING (src/markdown.js).
+ */
+export const MAX_RENDER_DEPTH = 256;
 
 // Heading ids are namespaced so page content cannot clobber app element ids.
 export const headingId = (slug: string): string => `h-${slug}`;
@@ -74,8 +80,8 @@ export function renderBlocks(blocks: unknown, ctx: RenderCtx): ReactNode[] {
     });
   };
 
-  const link = (n: Node): ReactNode => {
-    const label = inlines(n.c);
+  const link = (n: Node, depth: number): ReactNode => {
+    const label = inlines(n.c, depth + 1);
     switch (n.kind) {
       case 'page':
         return pageLink(n.target, label);
@@ -110,37 +116,39 @@ export function renderBlocks(blocks: unknown, ctx: RenderCtx): ReactNode[] {
     }
   };
 
-  function inlines(nodes: unknown): ReactNode[] {
+  function inlines(nodes: unknown, depth: number): ReactNode[] {
     const out: ReactNode[] = [];
+    if (depth > MAX_RENDER_DEPTH) return out;
     for (const n of list(nodes)) {
       if (!isNode(n)) continue;
       if (n.t === 'text') out.push(text(n.v));
       else if (n.t === 'code') out.push(h('code', {}, [text(n.v)]));
-      else if (n.t === 'em' || n.t === 'strong' || n.t === 'del') out.push(h(n.t, {}, inlines(n.c)));
-      else if (n.t === 'link') out.push(link(n));
+      else if (n.t === 'em' || n.t === 'strong' || n.t === 'del') out.push(h(n.t, {}, inlines(n.c, depth + 1)));
+      else if (n.t === 'link') out.push(link(n, depth));
     }
     return out;
   }
 
-  function block(n: Node, tight: boolean): ReactNode | ReactNode[] {
+  function block(n: Node, tight: boolean, depth: number): ReactNode | ReactNode[] {
+    const inl = (v: unknown) => inlines(v, depth + 1);
     switch (n.t) {
       case 'h': {
         const lv = Number.isInteger(n.level) && (n.level as number) >= 1 && (n.level as number) <= 6 ? (n.level as number) : null;
-        return lv ? h(`h${lv}`, { id: headingId(text(n.id)) }, inlines(n.c)) : null;
+        return lv ? h(`h${lv}`, { id: headingId(text(n.id)) }, inl(n.c)) : null;
       }
       case 'p':
-        return tight ? inlines(n.c) : h('p', {}, inlines(n.c));
+        return tight ? inl(n.c) : h('p', {}, inl(n.c));
       case 'pre':
         return h('pre', {}, [h('code', { 'data-lang': n.lang ? text(n.lang) : null }, [text(n.text)])]);
       case 'ul':
       case 'ol':
-        return h(n.t, {}, list(n.items).map((item) => h('li', {}, blocksOf(item, n.tight === true))));
+        return h(n.t, {}, list(n.items).map((item) => h('li', {}, blocksOf(item, n.tight === true, depth + 1))));
       case 'quote':
-        return h('blockquote', {}, blocksOf(n.c));
+        return h('blockquote', {}, blocksOf(n.c, false, depth + 1));
       case 'table': {
         const align = list(n.align);
         const cls = (i: number) => (ALIGN.has(align[i] as string) ? `align-${align[i]}` : null);
-        const row = (cells: unknown, tag: 'th' | 'td') => h('tr', {}, list(cells).map((c, i) => h(tag, { className: cls(i) }, inlines(c))));
+        const row = (cells: unknown, tag: 'th' | 'td') => h('tr', {}, list(cells).map((c, i) => h(tag, { className: cls(i) }, inl(c))));
         // The wrapper scrolls a wide table inside itself, so the page never overflows sideways.
         return h('div', { className: 'table-wrap' }, [
           h('table', {}, [h('thead', {}, [row(n.head, 'th')]), h('tbody', {}, list(n.rows).map((r) => row(r, 'td')))]),
@@ -153,18 +161,19 @@ export function renderBlocks(blocks: unknown, ctx: RenderCtx): ReactNode[] {
     }
   }
 
-  function blocksOf(nodes: unknown, tight = false): ReactNode[] {
+  function blocksOf(nodes: unknown, tight: boolean, depth: number): ReactNode[] {
     const out: ReactNode[] = [];
+    if (depth > MAX_RENDER_DEPTH) return out;
     for (const n of list(nodes)) {
       if (!isNode(n)) continue;
-      const r = block(n, tight);
+      const r = block(n, tight, depth);
       if (Array.isArray(r)) out.push(...r);
       else if (r) out.push(r);
     }
     return out;
   }
 
-  return blocksOf(blocks);
+  return blocksOf(blocks, false, 0);
 }
 
 /** A page body. Wrap it in `.wiki-md` for its styles. */
