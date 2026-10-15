@@ -1,0 +1,162 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import './cc-theme-fallback.css';
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Geist Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --color-plan: var(--plan);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+}
+
+/* Rendered page content (lib/render.tsx). The renderer emits bare tags and the
+   link-kind classes below; every colour here is a token. */
+@layer components {
+  .wiki-md {
+    @apply text-sm leading-relaxed break-words;
+  }
+  .wiki-md > * + * {
+    @apply mt-3;
+  }
+  .wiki-md h1,
+  .wiki-md h2,
+  .wiki-md h3 {
+    @apply border-b border-border pb-1 font-semibold;
+  }
+  .wiki-md h1 {
+    @apply mt-6 text-2xl;
+  }
+  .wiki-md h2 {
+    @apply mt-6 text-xl;
+  }
+  .wiki-md h3 {
+    @apply mt-5 text-lg;
+  }
+  .wiki-md h4,
+  .wiki-md h5,
+  .wiki-md h6 {
+    @apply mt-4 font-semibold;
+  }
+  .wiki-md > :first-child {
+    @apply mt-0;
+  }
+  .wiki-md code {
+    @apply rounded bg-muted px-1 font-mono text-[0.92em];
+  }
+  .wiki-md pre {
+    @apply overflow-x-auto rounded-md border bg-muted p-3;
+  }
+  .wiki-md pre code {
+    @apply bg-transparent p-0 break-normal whitespace-pre;
+  }
+  .wiki-md blockquote {
+    @apply border-l-4 border-border pl-3 text-muted-foreground;
+  }
+  .wiki-md .table-wrap {
+    @apply overflow-x-auto;
+  }
+  .wiki-md table {
+    @apply border-collapse border border-border;
+  }
+  .wiki-md th,
+  .wiki-md td {
+    @apply border border-border px-2 py-1 text-left align-top;
+  }
+  .wiki-md th {
+    @apply bg-muted font-semibold;
+  }
+  .wiki-md .align-left {
+    @apply text-left;
+  }
+  .wiki-md .align-center {
+    @apply text-center;
+  }
+  .wiki-md .align-right {
+    @apply text-right;
+  }
+  .wiki-md hr {
+    @apply my-4 border-border;
+  }
+  .wiki-md ul {
+    @apply list-disc pl-6;
+  }
+  .wiki-md ol {
+    @apply list-decimal pl-6;
+  }
+  .wiki-md li > ul,
+  .wiki-md li > ol {
+    @apply mt-1;
+  }
+  .wiki-md a.link-page,
+  .wiki-md a.link-external,
+  .wiki-md a.link-anchor {
+    @apply text-primary underline-offset-4 hover:underline;
+  }
+  .wiki-md .link-external::after {
+    content: ' ↗';
+  }
+  .wiki-md .link-dead {
+    @apply text-destructive line-through decoration-dotted;
+  }
+  .wiki-md .link-ambiguous {
+    @apply border-b border-dotted border-warning text-warning;
+  }
+  .wiki-md .link-candidates {
+    @apply text-[0.85em];
+  }
+  .wiki-md .link-inert {
+    @apply border-b border-dotted text-muted-foreground;
+  }
+  mark {
+    @apply rounded-sm bg-warning/25 text-foreground;
+  }
+  .archived-item {
+    @apply italic opacity-55;
+  }
+}

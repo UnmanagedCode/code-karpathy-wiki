@@ -1,9 +1,10 @@
 import http from 'node:http';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as mcp from './src/mcp.js';
 import * as browse from './src/browse.js';
-import { serveAsset } from './src/static.js';
+import { serveAsset, distIndex } from './src/static.js';
 
 // 7000 (code-hub), 7100 (code-kanban), 8787 (code-conductor) and 9419/9420
 // (code-share) are taken. Under the supervisor $PORT is always injected; this
@@ -13,10 +14,14 @@ const MAX_BODY_BYTES = 256 * 1024;
 
 // Every response carries these (browser, health, MCP, errors). The page runs in an
 // unsandboxed same-origin host iframe, so the CSP backs up the AST-only
-// renderer: no inline script or style, and nothing loaded from elsewhere.
+// renderer: no inline script, and nothing loaded from elsewhere. Inline styles
+// are allowed because Radix (the phone drawer's scroll lock) and sonner inject
+// <style>; the renderer never emits a style attribute or element from content.
+// font-src admits the host's Geist fonts (/pluginTheme/fonts/…, same origin).
+export const CSP = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
 const SECURITY_HEADERS = {
   'x-content-type-options': 'nosniff',
-  'content-security-policy': "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
+  'content-security-policy': CSP,
 };
 
 function send(res, status, obj) {
@@ -152,6 +157,7 @@ export async function start({
 } = {}) {
   const server = createServer();
   await listenWithRetry(server, port, host);
+  if (!existsSync(distIndex())) console.error(`UI not built: ${distIndex()} is missing — run npm install`);
   // eslint-disable-next-line no-console
   console.log(`code-wiki listening on http://${host}:${server.address().port}`);
   return server;
