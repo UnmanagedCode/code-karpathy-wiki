@@ -226,6 +226,8 @@ test('block parsing is linear: 100k lines each starting with a closed HTML comme
 // one long line. Each shape is a whole page at the per-page cap; through a
 // backtracking regex each took seconds to minutes, with the event loop (and so
 // /api/health) blocked throughout.
+// A quadratic regex runs synchronously, so node:test's per-test timeout cannot
+// preempt it: a regression here shows as a hung run, not a ✖.
 test('block matchers are linear: adversarial lines at MAX_PAGE_BYTES each parse in under 1 s', () => {
   const half = (MAX_PAGE_BYTES >> 1) - 16;
   const sp = (n) => ' '.repeat(n);

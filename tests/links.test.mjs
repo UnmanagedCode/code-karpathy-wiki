@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { linkContext, scopeOf, resolveWiki, resolveHref, buildNameIndex } from '../src/links.js';
+import { linkContext, scopeOf, resolveWiki, resolveHref, buildNameIndex, trimTrailingSlashes } from '../src/links.js';
 
 const orch = (pages) => linkContext('orchestrator', pages);
 const proj = (pages) => linkContext('project', pages);
@@ -156,4 +156,19 @@ test('a destination with no path ([x](), [x](?q), [x](?#f)) is outside, not dead
   const { lintSnapshot } = await import('../src/lint.js');
   const r = lintSnapshot(buildSnapshot({ id: 'p:x', kind: 'project', label: 'x' }, { 'index.md': '[x]() and [y]( ) [z](?q) [w](?#f)\n' }));
   assert.equal(r.deadLinks.length, 0);
+});
+
+// Invariant: trailing-slash trimming keeps /\/+$/'s result and is linear: a slash run is not rescanned from each
+// start (the regex took ~25 s on 256 KiB of slashes before a non-slash). Synchronous, so a regression hangs the
+// suite rather than failing under node:test's timeout.
+test('trimTrailingSlashes: the trailing-slash regex result, linear on a long slash run', () => {
+  for (const s of ['', '/', '///', 'a', 'a/', 'a///', 'a/b', '/a/b//', 'a//b']) assert.equal(trimTrailingSlashes(s), s.replace(/\/+$/, ''), s);
+  const N = 1e6;
+  for (const [s, want] of [['/'.repeat(N - 1) + 'a', null], ['/'.repeat(N), ''], ['a' + '/'.repeat(N - 1), 'a']]) {
+    const t = performance.now();
+    const out = trimTrailingSlashes(s);
+    const ms = performance.now() - t;
+    assert.ok(ms < 1000, `${s.length} chars took ${ms.toFixed(0)} ms`);
+    assert.equal(out, want ?? s);
+  }
 });

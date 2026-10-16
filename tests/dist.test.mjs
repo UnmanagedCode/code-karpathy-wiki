@@ -90,3 +90,29 @@ test('the server serves the built page and its assets', async () => {
     resetEnv();
   }
 });
+
+// Invariant: App's `/` decides pane vs drawer with WIDE_QUERY, and the layout shows the pane with Tailwind's
+// `md` variant. Unit tests stub matchMedia, so only this ties the two: it fails when WIDE_QUERY, the pane's or
+// top bar's `md:` classes, or the `md` media query in the built CSS moves without the others.
+test('WIDE_QUERY matches the breakpoint the built CSS shows the sidebar pane at', () => {
+  const shell = readFileSync(path.join(DEFAULT_DIST, '..', 'src', 'components', 'AppShell.tsx'), 'utf8');
+  const query = shell.match(/export const WIDE_QUERY = '([^']+)';/)?.[1];
+  assert.equal(query, '(width >= 48rem)');
+  const classes = (tag) => shell.match(new RegExp(`<${tag} className="([^"]+)"`))?.[1].split(/\s+/) ?? [];
+  const aside = classes('aside');
+  assert.ok(aside.includes('hidden') && aside.includes('md:block'), `pane: ${aside.join(' ')}`);
+  assert.equal(aside.filter((c) => /^(?:sm|lg|xl|2xl|max-[\w-]+|min-[\w-]+):/.test(c)).length, 0, 'pane switches at md only');
+  assert.ok(classes('header').includes('md:hidden'), 'the top bar (menu button) hides at md');
+
+  const css = files.filter((f) => f.endsWith('.css')).map(read).join('\n');
+  const rule = '.md\\:block{display:block}';
+  const at = css.indexOf(rule);
+  assert.ok(at >= 0, `built CSS has ${rule}`);
+  const media = css.lastIndexOf('@media', at);
+  const open = css.indexOf('{', media);
+  let depth = 0;
+  for (let i = open; i < at; i++) depth += css[i] === '{' ? 1 : css[i] === '}' ? -1 : 0;
+  assert.ok(media >= 0 && depth >= 1, `${rule} sits inside an @media block`);
+  const norm = (q) => q.replace(/\s+/g, '');
+  assert.equal(norm(css.slice(media + '@media'.length, open)), norm(query));
+});
