@@ -10,12 +10,17 @@
 // reference-style links, images (an image becomes a link labelled by its alt).
 // Leading tabs expand to the next multiple of 4 columns, fenced code included.
 
-const FENCE_RE = /^( {0,3})(`{3,}|~{3,})(.*)$/;
+// Every quantifier that precedes a `(.*)$` is closed off by a lookahead: `.`
+// stops at U+2028/U+2029, so on such a line `$` fails, and without the
+// lookahead the quantifier would give back one character at a time, each
+// retry rescanning the rest of the line (quadratic in the line length).
+const FENCE_RE = /^( {0,3})(`{3,}(?!`)|~{3,}(?!~))(.*)$/;
 const ATX_RE = /^ {0,3}(#{1,6})(?=[ \t]|$)(.*)$/;
 const HR_RE = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/;
 const QUOTE_RE = /^ {0,3}> ?/;
-const LIST_RE = /^( *)([-*+]|(\d{1,9})([.)]))(?:( +)(.*))?$/;
-const DELIM_RE = /^ *\|? *:?-+:? *(?:\| *:?-+:? *)*\|? *$/;
+const LIST_RE = /^( *)([-*+]|(\d{1,9})([.)]))(?:( +)(?! )(.*))?$/;
+const FRONTMATTER_RE = /^([A-Za-z0-9_-]+):[ \t]*(?![ \t])(.*)$/;
+const DELIM_CELL_RE = /^ *:?-+:? *$/;
 const AUTO_RE = /^<([a-zA-Z][a-zA-Z0-9+.-]{1,31}:[^\s<>]*)>/;
 const PUNCT_RE = /[!-/:-@[-`{-~]/;
 const ENTITY_RE = /^&(?:#(\d{1,7})|#[xX]([0-9a-fA-F]{1,6})|(amp|lt|gt|quot|apos|nbsp));/;
@@ -49,7 +54,7 @@ export function parse(text, fallbackTitle = '') {
 function parseFrontmatter(lines) {
   const out = [];
   for (const line of lines) {
-    const m = /^([A-Za-z0-9_-]+):[ \t]*(.*)$/.exec(line);
+    const m = FRONTMATTER_RE.exec(line);
     if (!m) continue;
     let v = m[2].trim();
     if (v.length >= 2 && (v[0] === '"' || v[0] === "'") && v[v.length - 1] === v[0]) v = v.slice(1, -1);
@@ -100,14 +105,46 @@ function listMarker(s) {
   };
 }
 
+// An ATX heading's closing sequence: trailing `#`s preceded by spaces/tabs (or
+// making up the whole string) are dropped with that whitespace. A loop, not an
+// unanchored regex, which would rescan each whitespace run from every start.
+function stripClosingHashes(s) {
+  let j = s.length;
+  while (j > 0 && s[j - 1] === '#') j--;
+  if (j === s.length) return s;
+  if (j === 0) return '';
+  if (s[j - 1] !== ' ' && s[j - 1] !== '\t') return s;
+  while (j > 0 && (s[j - 1] === ' ' || s[j - 1] === '\t')) j--;
+  return s.slice(0, j);
+}
+
 function commentStart(s) {
   return s.trimStart().startsWith('<!--');
+}
+
+// A table delimiter row: optional outer pipes, then `|`-separated cells each
+// `:?-+:?` padded with spaces (U+0020 only). Checked cell by cell, so it is
+// linear: a single regex over the whole row backtracks quadratically on runs
+// of spaces around a pipe.
+function isDelimRow(line) {
+  let i = 0;
+  let j = line.length;
+  while (i < j && line[i] === ' ') i++;
+  if (line[i] === '|') i++;
+  while (j > i && line[j - 1] === ' ') j--;
+  if (j > i && line[j - 1] === '|') {
+    j--;
+    while (j > i && line[j - 1] === ' ') j--;
+  }
+  if (i >= j) return false;
+  for (const cell of line.slice(i, j).split('|')) if (!DELIM_CELL_RE.test(cell)) return false;
+  return true;
 }
 
 function isTableStart(recs, i) {
   if (i + 1 >= recs.length || !recs[i].s.includes('|')) return false;
   const d = recs[i + 1].s;
-  if (!d.includes('|') || !DELIM_RE.test(d)) return false;
+  if (!d.includes('|') || !isDelimRow(d)) return false;
   return splitCells(recs[i].s).length === splitCells(d).length;
 }
 
@@ -174,7 +211,7 @@ function parseBlocks(recs, st, depth) {
 
     m = ATX_RE.exec(s);
     if (m) {
-      let content = m[2].trim().replace(/(?:^|[ \t]+)#+$/, '').trim();
+      let content = stripClosingHashes(m[2].trim()).trim();
       if (/^#+$/.test(content)) content = '';
       const c = inlines([{ s: content, n: recs[i].n }], st);
       out.push({ t: 'h', level: m[1].length, id: uniqueSlug(plainText(c), st), c });

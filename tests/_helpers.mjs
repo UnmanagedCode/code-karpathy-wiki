@@ -4,6 +4,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { _setProjectFetcher } from '../src/projects.js';
 import { _setParse, _setMaxWalkEntries } from '../src/snapshot.js';
+import { _setDistDir } from '../src/static.js';
 
 // Fresh isolated wiki per test. Setting PROJECTS_ROOT is enough: every path
 // helper reads it at call time. Never touches the real .conduct/ tree.
@@ -33,6 +34,7 @@ export function resetEnv() {
   _setProjectFetcher(null);
   _setParse(null);
   _setMaxWalkEntries(null);
+  _setDistDir(null);
 }
 
 // Stub the host project list. Returns a call counter so a test can assert the
@@ -68,6 +70,19 @@ export async function freshProjectWiki(root, name, files) {
   await fs.mkdir(path.join(dir, '.wiki'), { recursive: true });
   await writeTree(path.join(dir, '.wiki'), files);
   return { name, path: dir, system: 'local', workspace: null };
+}
+
+// A built-UI stand-in for the static tests: the file shapes Vite emits
+// (a base64url-hashed assets/ name included). Returns its directory.
+export async function fixtureDist(root) {
+  const dir = path.join(root, 'dist');
+  await writeTree(dir, {
+    'index.html': '<!doctype html><script type="module" src="./assets/index-Ab_9-x.js"></script>',
+    'theme-init.js': '// theme',
+    'assets/index-Ab_9-x.js': 'export {};',
+    'assets/index-Cd1.css': 'body{}',
+  });
+  return dir;
 }
 
 // Sorted fingerprint of everything under dir (lstat, so symlinks are covered

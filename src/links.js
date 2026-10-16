@@ -54,10 +54,18 @@ export function scopeOf(kind, rel) {
   return '';
 }
 
+// `p` without its trailing slashes. A loop: an unanchored /\/+$/ rescans a slash
+// run from every start, quadratic in its length.
+export function trimTrailingSlashes(p) {
+  let end = p.length;
+  while (end > 0 && p[end - 1] === '/') end--;
+  return p.slice(0, end);
+}
+
 // Normalise base + target; null when it climbs out of the source root.
 function within(base, target) {
   let p = posix.normalize(base === '' ? target : `${base}/${target}`);
-  p = p.replace(/\/+$/, '');
+  p = trimTrailingSlashes(p);
   if (p === '.') p = '';
   if (p === '..' || p.startsWith('../') || p.startsWith('/')) return null;
   return p;

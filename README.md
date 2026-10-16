@@ -31,19 +31,23 @@ See [docs/features.md](docs/features.md) for the scope routing rule, what `read_
 
 ## Quick start
 
+Needs Node `>=22.12.0` (the UI's build and test tools).
+
 ```sh
-npm test          # node:test suite, no install step
-node server.js    # standalone on :7200 (honours $PORT)
+npm install       # devDependencies, then `prepare` builds the UI into frontend/dist
+npm test          # node:test suite, then tsc, then vitest
+npm start         # standalone on :7200 (or PORT=… npm start)
+npm run dev       # Vite dev server for the UI, API proxied to :7200 (PLUGIN_BACKEND overrides)
 curl localhost:7200/api/health
 ```
 
-Standalone, open `http://localhost:7200/` for the browser page (orchestrator wiki only: project wikis need `CONDUCTOR_URL`). Under the conductor it is the **Code Wiki** entry in the app switcher, served at `/plugins/code-wiki/`.
+Standalone, open `http://localhost:7200/` for the browser page (orchestrator wiki only: project wikis need `CONDUCTOR_URL`). Until `npm install` has built the UI, `/` answers `503 UI not built — run npm install`; the API and MCP endpoints work without it. Under the conductor it is the **Code Wiki** entry in the app switcher, served at `/plugins/code-wiki/`.
 
 Under the conductor the backend is supervised: `$PORT`, `PROJECTS_ROOT` and `CONDUCTOR_URL` are injected at spawn.
 
 ## Technical description
 
-Conventions/scaffolds plus a supervised backend, `pluginApi: 1`. **Zero npm dependencies** — `node:http` and `node:test` only, so a fresh clone works with no install step. Read-only: no write tools and no write routes. The frontend is plain ES modules served as-is — no build step. It's discovered as a plugin because it's a project directory containing `conductor.plugin.json`.
+Conventions/scaffolds plus a supervised backend, `pluginApi: 1`. **No runtime dependencies**: the backend is `node:http` only, and its suite is `node:test`. The UI (React, Vite, Tailwind v4, shadcn/Radix components, lucide icons, sonner) is all `devDependencies`, built into `frontend/dist` by `npm install` (the `prepare` script); cc's Library entry runs `npm install` on Install and Update. It meets code-conductor's plugin-UI host contract (`docs/plugin-ui.md` in code-conductor, Part 1 "Host contract" and Part 2 "Security"): cc's theme and fonts from `/pluginTheme.css`, cc's light/dark followed live through `/pluginBridge.js`. Its stack is that doc's optional Part 3 setup, the one cc's own `web/` uses. Read-only: no write tools and no write routes. It's discovered as a plugin because it's a project directory containing `conductor.plugin.json`.
 
 ```
 code-karpathy-wiki/
@@ -61,8 +65,18 @@ code-karpathy-wiki/
 │   ├── lint.js                 # health checks
 │   ├── search.js               # full-text search
 │   ├── browse.js               # browser API handlers
-│   └── static.js               # frontend asset serving
-├── frontend/                   # index.html, app.js, render.js, tree.js, styles.css
+│   └── static.js               # serves the built UI from frontend/dist
+├── frontend/                   # the browser page (React + Vite), built into frontend/dist
+│   ├── index.html              # host bridge + theme, theme-init.js, then the module entry
+│   ├── vite.config.ts  vitest.config.ts  tsconfig.json
+│   ├── public/theme-init.js    # standalone: follow the OS theme
+│   └── src/
+│       ├── main.tsx  App.tsx   # entry; routing, data loading, layout
+│       ├── index.css           # Tailwind + cc's @theme mapping + .wiki-md content styles
+│       ├── cc-theme-fallback.css  # standalone snapshot of cc's tokens
+│       ├── lib/                # render.tsx (AST -> React), route.ts, api.ts, safeHref.ts, tree.ts, …
+│       ├── components/         # Sidebar, SourceTree, SearchBox, AppShell, …; ui/ = copied shadcn components
+│       └── views/              # PageView, HealthView, SearchView
 ├── conventions/
 │   ├── project-wiki.md         # scope: project
 │   └── orchestrator-wiki.md    # scope: conductor
@@ -89,6 +103,9 @@ code-karpathy-wiki/
 | Walk cap | `MAX_WALK_ENTRIES` 20000 entries per source, flagged `truncated` on tree and lint |
 | Markdown nesting | `MAX_NESTING` 32 levels; deeper content is plain text |
 | Browser mount | `/plugins/code-wiki/` under the conductor; every frontend URL is relative |
+| Browser routes | query string: `?view=page&source=&path=`, `?view=health&source=`, `?view=search&q=`; `#/…` hash links are rewritten once |
+| CSP | `default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'` on every response (`CSP` in `server.js`) |
+| Theme | cc's light/dark embedded; the OS setting standalone |
 
 ## Known limitations
 
@@ -100,7 +117,9 @@ code-karpathy-wiki/
 - Project wikis are listed only for projects on the `local` system, and only when `CONDUCTOR_URL` is set.
 - No live reload: pages are re-read on each view, the sidebar trees on ↻ or page reload.
 - The markdown renderer is a subset: no indented code blocks, setext headings, reference-style links or images (an image shows as a link to its source). Raw HTML is shown as literal text. Leading tabs become 4-column stops (code blocks included), ordered lists always number from 1, and nesting past `MAX_NESTING` is plain text. An HTML comment inside a link construct is not transparent: in `[[a<!--x-->b]]`, `[t](a<!--x-->b.md)` or a link title, the comment's bytes stay in the target or label, or the link is not recognised.
-- The page runs in an unsandboxed iframe on the host's origin, and the host has no auth, so the AST-only renderer plus the page's CSP are the XSS boundary.
+- The page runs in an unsandboxed iframe on the host's origin, and the host has no auth, so the AST-only renderer (`frontend/src/lib/render.tsx`) plus the page's CSP are the XSS boundary.
+- The UI is built at install: `npm install` with `NODE_ENV=production` or `npm_config_omit=dev` in its environment skips the devDependencies, so the build fails. cc's install hook inherits cc's own environment, so this depends on how cc was launched. Until a build succeeds, the page answers 503.
+- Node `>=22.12.0` is required to install and test (`engines.node`; Vite 8 and Vitest 5 need it).
 - Search is AND-of-substrings over raw page text, sorted by title match then hit count — not ranked by relevance.
 
 ## License

@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parse, MAX_NESTING } from '../src/markdown.js';
+import { MAX_PAGE_BYTES } from '../src/snapshot.js';
 
 // Every node in an AST, blocks and inlines alike.
 function nodes(blocks) {
@@ -219,6 +220,56 @@ test('block parsing is linear: 100k lines each starting with a closed HTML comme
   const src = '<!-- c -->a\n'.repeat(100000);
   const ms = timed(src);
   assert.ok(ms < 1000, `${ms.toFixed(0)} ms`);
+});
+
+// Invariant (availability): no block-level matcher backtracks quadratically on
+// one long line. Each shape is a whole page at the per-page cap; through a
+// backtracking regex each took seconds to minutes, with the event loop (and so
+// /api/health) blocked throughout.
+// A quadratic regex runs synchronously, so node:test's per-test timeout cannot
+// preempt it: a regression here shows as a hung run, not a ✖.
+test('block matchers are linear: adversarial lines at MAX_PAGE_BYTES each parse in under 1 s', () => {
+  const half = (MAX_PAGE_BYTES >> 1) - 16;
+  const sp = (n) => ' '.repeat(n);
+  const vectors = {
+    'table delimiter row: spaces | spaces': `|\n${sp(half)}|${sp(half)}`,
+    'front matter value then U+2028': `---\na:${sp(MAX_PAGE_BYTES - 32)} \n---\n`,
+    'backtick fence run then U+2028': `${'`'.repeat(MAX_PAGE_BYTES - 16)} `,
+    'tilde fence run then U+2029': `${'~'.repeat(MAX_PAGE_BYTES - 16)} `,
+    'list marker, spaces, then U+2028': `-${sp(MAX_PAGE_BYTES - 16)} `,
+    'heading with a space run before a non-closing #': `# a${sp(MAX_PAGE_BYTES - 16)}#x`,
+  };
+  for (const [name, src] of Object.entries(vectors)) {
+    assert.ok(src.length <= MAX_PAGE_BYTES, `${name} fits the cap`);
+    const ms = timed(src);
+    assert.ok(ms < 1000, `${name} (${src.length} chars) took ${ms.toFixed(0)} ms`);
+  }
+});
+
+// Invariant: the linear block matchers accept exactly what the regexes they
+// replace did: delimiter cells padded by U+0020 only, outer pipes optional, no
+// empty cell; a closing # run only after whitespace; a line holding U+2028 is
+// no fence, list item or front-matter line.
+test('linear block matchers keep table, closing-#, fence, list and front-matter semantics', () => {
+  const isTable = (src) => parse(src).blocks[0]?.t === 'table';
+  assert.equal(isTable('a|b\n-|-\n'), true);
+  assert.equal(isTable('|a|b|\n| :-- | --: |\n'), true);
+  assert.equal(isTable('  |a|  \n  |-|  \n'), true);
+  assert.equal(isTable('|a|b|\n|-|\t-|\n'), false, 'tab padding');
+  assert.equal(isTable('|a|b|\n|-||-|\n'), false, 'empty cell');
+  assert.equal(isTable('|a|\n|:|\n'), false, 'no dash');
+  assert.equal(isTable('|a|\n||\n'), false);
+  const heading = (src) => texts([parse(src).blocks[0]]);
+  assert.equal(heading('# a ##'), 'a');
+  assert.equal(heading('# a \t#'), 'a');
+  assert.equal(heading('# a#'), 'a#');
+  assert.equal(heading('# a # b'), 'a # b');
+  assert.equal(heading('# ###'), '');
+  assert.equal(parse('``` x\ncode\n```\n').blocks[0].t, 'p');
+  assert.equal(parse('- a b\n').blocks[0].t, 'p');
+  assert.deepEqual(parse('---\na: x y\nb:  two \n---\n').frontmatter, { b: 'two' });
+  assert.equal(parse('```js\nx\n```\n').blocks[0].lang, 'js');
+  assert.equal(parse('-    x\n').blocks[0].t, 'ul');
 });
 
 // Invariant: the linear-time rewrite keeps link and emphasis semantics on ordinary input.

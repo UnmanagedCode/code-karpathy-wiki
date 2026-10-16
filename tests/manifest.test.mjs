@@ -101,14 +101,29 @@ test('conventions survive the backend addition', () => {
   }
 });
 
-// Hard constraint: this plugin's Plugin Library entry has no postClone hook, so
-// any dependency would break a fresh clone.
-test('package.json declares zero dependencies', () => {
+// The backend runs on node: built-ins only, so no runtime dependency; the UI is
+// devDependencies, built into frontend/dist by `npm install` (`prepare`), which
+// cc's Library entry runs on Install and Update.
+const UI_DEV_DEPS = ['vite', '@vitejs/plugin-react', '@tailwindcss/vite', 'tailwindcss', 'tw-animate-css', 'typescript',
+  'react', 'react-dom', '@types/react', '@types/react-dom', 'radix-ui', 'class-variance-authority', 'clsx', 'tailwind-merge',
+  'lucide-react', 'sonner', 'vitest', 'happy-dom', '@testing-library/react', '@testing-library/user-event'];
+
+test('package.json: no runtime dependencies; the UI is devDependencies built on install', () => {
   assert.equal(pkg.dependencies, undefined);
-  assert.equal(pkg.devDependencies, undefined);
-  assert.equal(pkg.type, 'module');
+  for (const d of UI_DEV_DEPS) assert.ok(pkg.devDependencies?.[d], `devDependency ${d}`);
+  assert.equal(pkg.scripts.prepare, 'vite build --config frontend/vite.config.ts');
+  assert.match(pkg.scripts.test, /^node tests\/run\.mjs && /);
+  assert.match(pkg.scripts.test, /npm run typecheck/);
+  assert.match(pkg.scripts.test, /npm run test:web/);
   assert.equal(pkg.scripts.start, 'node server.js');
-  assert.ok(pkg.scripts.test);
-  assert.equal(pkg.engines.node, '>=18');
+  assert.equal(pkg.private, true);
+  assert.equal(pkg.type, 'module');
+  assert.equal(pkg.engines.node, '>=22.12.0');
   assert.equal(pkg.license, 'AGPL-3.0-or-later');
+});
+
+// Install must leave the checkout clean, or cc's Update (git pull --ff-only) refuses.
+test('.gitignore covers what npm install writes', () => {
+  const lines = readFileSync(path.join(ROOT, '.gitignore'), 'utf8').split('\n').map((l) => l.trim());
+  for (const l of ['node_modules/', 'frontend/dist/', 'package-lock.json']) assert.ok(lines.includes(l), l);
 });
