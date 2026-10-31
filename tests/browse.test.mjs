@@ -1,9 +1,9 @@
-import { test } from 'node:test';
+import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { handle } from '../src/browse.js';
 import { MAX_PAGE_BYTES } from '../src/snapshot.js';
 import { MAX_RESULTS } from '../src/search.js';
-import { freshWiki, cleanup, resetEnv, useProjects, freshProjectWiki } from './_helpers.mjs';
+import { freshWiki, cleanup, resetEnv, useProjects, useFailingConductor, freshProjectWiki } from './_helpers.mjs';
 
 const get = (route, params = {}) => handle(route, new URLSearchParams(params));
 
@@ -17,6 +17,23 @@ async function withWiki(fn) {
     resetEnv();
   }
 }
+
+// Invariant: a failed host lookup adds projectsError to /api/sources; a healthy one never carries it.
+test('sources: projectsError only when the host lookup failed', async () => {
+  await withWiki(async () => {
+    useFailingConductor();
+    const warn = mock.method(console, 'warn', () => {});
+    try {
+      const r = await get('/api/sources');
+      assert.equal(r.status, 200);
+      assert.deepEqual(r.body, {
+        sources: [{ id: 'orchestrator', kind: 'orchestrator', label: 'Orchestrator' }], conductor: true, projectsError: 'unreachable',
+      });
+    } finally {
+      warn.mock.restore();
+    }
+  });
+});
 
 // Invariant: /api/sources lists ids/kinds/labels (never roots) and the conductor flag.
 test('sources shape', async () => {

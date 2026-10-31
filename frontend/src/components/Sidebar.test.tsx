@@ -61,6 +61,13 @@ describe('Sidebar', () => {
     expect(within(screen.getByRole('region', { name: 'demo' })).getByText(/Tree truncated/)).toBeTruthy();
   });
 
+  // Invariant: a failed host project lookup shows a warning with its reason; the sources still render.
+  it('warns when project wikis could not be listed', () => {
+    renderSidebar(home, { ...WIKIS, projectsError: 'conductor /api/projects returned 500' });
+    expect(screen.getByRole('alert').textContent).toContain('Project wikis are unavailable: conductor /api/projects returned 500');
+    expect(screen.getByRole('region', { name: 'Orchestrator' })).toBeTruthy();
+  });
+
   // Invariant: top-level dirs open; the archive starts collapsed and is the only badged dir; unreadable dirs are badged.
   it('opens top-level dirs, collapses and badges only the archive root', () => {
     renderSidebar(home);

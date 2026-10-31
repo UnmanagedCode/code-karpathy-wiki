@@ -39,6 +39,11 @@ export function Sidebar({ route, wikis, loadError, reloading, onReload, dirs, on
           <RefreshCwIcon className={cn(reloading && 'animate-spin')} />
         </Button>
       </div>
+      {wikis?.projectsError && (
+        <Alert variant="warning" className="py-2">
+          <AlertDescription>Project wikis are unavailable: {wikis.projectsError}. Showing the orchestrator wiki only.</AlertDescription>
+        </Alert>
+      )}
       {wikis ? (
         wikis.sources.map((s) => (
           <SourceSection key={s.id} source={s} result={wikis.trees[s.id] ?? {}} route={route} dirs={dirs} onToggleDir={onToggleDir} />

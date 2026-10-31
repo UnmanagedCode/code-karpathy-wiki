@@ -1,8 +1,9 @@
-import { test } from 'node:test';
+import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { listSources, getSource } from '../src/sources.js';
+import { _setProjectFetcher } from '../src/projects.js';
 import { freshWiki, cleanup, resetEnv, useProjects, useFailingConductor, freshProjectWiki } from './_helpers.mjs';
 
 async function withWiki(fn) {
@@ -23,8 +24,9 @@ test('no CONDUCTOR_URL: only orchestrator, fetcher never called', async () => {
     const row = await freshProjectWiki(root, 'demo', { 'index.md': 'x' });
     const calls = useProjects([row]);
     delete process.env.CONDUCTOR_URL;
-    const list = await listSources();
+    const { sources: list, projectsError } = await listSources();
     assert.deepEqual(list, [{ id: 'orchestrator', kind: 'orchestrator', label: 'Orchestrator', root: wiki }]);
+    assert.equal(projectsError, null);
     assert.equal(calls.n, 0);
   });
 });
@@ -34,7 +36,7 @@ test('local project with .wiki is listed', async () => {
   await withWiki(async ({ root }) => {
     const row = await freshProjectWiki(root, 'demo', { 'index.md': 'x' });
     useProjects([row]);
-    const list = await listSources();
+    const { sources: list } = await listSources();
     assert.deepEqual(list[1], { id: 'p:demo', kind: 'project', label: 'demo', root: path.join(row.path, '.wiki') });
     assert.equal((await getSource('p:demo')).root, path.join(row.path, '.wiki'));
   });
@@ -62,17 +64,57 @@ test('row filters: remote, missing .wiki, empty/relative path, .wiki file; symli
       { name: 'linked', path: path.join(root, 'linked'), system: 'local' },
       null, 'junk', { path: local.path, system: 'local' },
     ]);
-    assert.deepEqual(ids(await listSources()), ['orchestrator', 'p:local', 'p:legacy', 'p:linked']);
+    assert.deepEqual(ids((await listSources()).sources), ['orchestrator', 'p:local', 'p:legacy', 'p:linked']);
     assert.equal(await getSource('p:remote'), null);
   });
 });
 
-// Invariant: a failing conductor degrades to orchestrator only.
-test('fetcher throws -> only orchestrator', async () => {
+// Invariant: a failing conductor degrades to orchestrator only, reports the reason, and logs it.
+test('fetcher throws -> only orchestrator, reason reported and logged', async () => {
   await withWiki(async () => {
     useFailingConductor();
-    assert.deepEqual(ids(await listSources()), ['orchestrator']);
-    assert.equal(await getSource('p:any'), null);
+    const warn = mock.method(console, 'warn', () => {});
+    try {
+      const { sources, projectsError } = await listSources();
+      assert.deepEqual(ids(sources), ['orchestrator']);
+      assert.equal(projectsError, 'unreachable');
+      assert.equal(warn.mock.callCount(), 1);
+      assert.match(warn.mock.calls[0].arguments[0], /unreachable/);
+      assert.equal(await getSource('p:any'), null);
+    } finally {
+      warn.mock.restore();
+    }
+  });
+});
+
+// Invariant: a transport failure's socket error code is part of the reported reason.
+test('fetch failure with a socket cause -> reason includes the cause code', async () => {
+  await withWiki(async () => {
+    process.env.CONDUCTOR_URL = 'http://127.0.0.1:0';
+    _setProjectFetcher(async () => { throw new TypeError('fetch failed', { cause: { code: 'ECONNREFUSED' } }); });
+    const warn = mock.method(console, 'warn', () => {});
+    try {
+      assert.equal((await listSources()).projectsError, 'fetch failed (ECONNREFUSED)');
+    } finally {
+      warn.mock.restore();
+    }
+  });
+});
+
+// Invariant: a body without a project list is a failed lookup, not an empty project list.
+test('fetcher returns no list -> orchestrator only, reported as a failure', async () => {
+  await withWiki(async () => {
+    process.env.CONDUCTOR_URL = 'http://127.0.0.1:0';
+    _setProjectFetcher(async () => undefined);
+    const warn = mock.method(console, 'warn', () => {});
+    try {
+      const { sources, projectsError } = await listSources();
+      assert.deepEqual(ids(sources), ['orchestrator']);
+      assert.equal(projectsError, 'no project list in the response');
+      assert.equal(warn.mock.callCount(), 1);
+    } finally {
+      warn.mock.restore();
+    }
   });
 });
 

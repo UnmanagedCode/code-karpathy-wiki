@@ -7,8 +7,10 @@ function orchestrator() {
   return { id: 'orchestrator', kind: 'orchestrator', label: 'Orchestrator', root: wikiRoot() };
 }
 
+// `projectsError` is the reason the host project lookup failed, or null.
 export async function listSources() {
-  return [orchestrator(), ...(await localProjectWikis())];
+  const { sources, error } = await localProjectWikis();
+  return { sources: [orchestrator(), ...sources], projectsError: error };
 }
 
 // Project sources are re-fetched per request (no cache): the host list is
@@ -16,5 +18,5 @@ export async function listSources() {
 export async function getSource(id) {
   if (id === 'orchestrator') return orchestrator();
   if (typeof id !== 'string' || !id.startsWith('p:')) return null;
-  return (await localProjectWikis()).find((s) => s.id === id) ?? null;
+  return (await localProjectWikis()).sources.find((s) => s.id === id) ?? null;
 }
