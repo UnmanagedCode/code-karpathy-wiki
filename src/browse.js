@@ -93,10 +93,15 @@ async function page(params) {
 }
 
 const routes = {
-  '/api/sources': async () => ok({
-    sources: (await listSources()).map(({ id, kind, label }) => ({ id, kind, label })),
-    conductor: Boolean(process.env.CONDUCTOR_URL),
-  }),
+  '/api/sources': async () => {
+    const { sources, projectsError } = await listSources();
+    return ok({
+      sources: sources.map(({ id, kind, label }) => ({ id, kind, label })),
+      conductor: Boolean(process.env.CONDUCTOR_URL),
+      // Present only when the host project lookup failed.
+      ...(projectsError && { projectsError }),
+    });
+  },
   '/api/tree': async (params) => {
     const { source, err } = await sourceParam(params);
     if (err) return err;
@@ -119,7 +124,7 @@ const routes = {
       if (err) return err;
       sources = [source];
     } else {
-      sources = await listSources();
+      ({ sources } = await listSources());
     }
     const snaps = await Promise.all(sources.map(loadSnapshot));
     return ok({ q: q.trim(), ...search(snaps, terms) });

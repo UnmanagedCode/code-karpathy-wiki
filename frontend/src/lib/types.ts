@@ -2,7 +2,7 @@
 // page AST types are advisory: render.tsx re-checks every node at runtime.
 
 export type Source = { id: string; kind: 'orchestrator' | 'project'; label: string };
-export type SourcesResponse = { sources: Source[]; conductor: boolean };
+export type SourcesResponse = { sources: Source[]; conductor: boolean; projectsError?: string };
 
 export type TreePage = { path: string; name: string; title: string };
 export type TreeNode = {

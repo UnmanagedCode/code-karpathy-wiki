@@ -96,7 +96,7 @@ code-karpathy-wiki/
 | Wiki root | `$PROJECTS_ROOT/.conduct/wiki` (else this repo's parent dir) |
 | Per-file cap | 64 KiB, reported via `meta.truncated` |
 | Request body cap | 256 KiB |
-| Conductor lookup timeout | 2 s |
+| Conductor lookup timeout | 10 s |
 | Browser page cap | `MAX_PAGE_BYTES` 1 MiB, flagged `truncated` |
 | Stale after | `STALE_AFTER_DAYS` 90 days since front-matter `updated` |
 | Search results cap | `MAX_RESULTS` 100, flagged `truncated` |

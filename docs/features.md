@@ -47,7 +47,7 @@ Embedded, the page uses the conductor's palette and fonts and follows its light/
 | Orchestrator wiki `.conduct/wiki/` | `orchestrator` | always (an absent dir is an empty tree) |
 | A project's in-tree `<project>/.wiki/` | `p:<name>` | `CONDUCTOR_URL` is set, the host row's `system` is `local` (or absent), its `path` is absolute, and `<path>/.wiki` is a directory (a symlinked `.wiki` counts) |
 
-Remote-system projects, degraded rows (`path: ''`) and worktrees are never listed. A failing conductor lookup leaves the orchestrator only.
+Remote-system projects, degraded rows (`path: ''`) and worktrees are never listed. A failing conductor lookup leaves the orchestrator only, and the sidebar shows a warning naming the reason ("Project wikis are unavailable: …").
 
 Entries whose name starts with `.` (e.g. `.prune-progress.md`) are hidden everywhere: tree, pages, search, health.
 

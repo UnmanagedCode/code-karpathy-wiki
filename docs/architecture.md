@@ -75,7 +75,9 @@ On a body over 256 KiB the request is *not* destroyed: tearing down the socket m
 
 **No filesystem fallback.** Workspace membership is host state with no on-disk representation we may read, so the `CONDUCTOR_URL` guard sits ahead of the fetcher: with no conductor context the function does no work at all — no network *and* no disk — and returns `null`.
 
-`workspaceForProject()` never throws and never refuses. Timeout, non-200, non-JSON, project absent, project unassigned — every path collapses to `null`, surfacing as `meta.resolvedWorkspace: null`. Fetch timeout is 2 s: the conductor is on loopback, and blocking the host's 30 s MCP budget to fetch one optional extra index is a bad trade when every other scope resolves without it.
+`workspaceForProject()` never throws and never refuses. Timeout, non-200, non-JSON, no project list, project absent, project unassigned — every path collapses to `null`, surfacing as `meta.resolvedWorkspace: null`. A failed lookup is also logged to stderr with its reason. The fetch timeout is `FETCH_TIMEOUT_MS`, kept well inside the host's 30 s MCP budget.
+
+`localProjectWikis()` (the browser's project sources) returns `{sources, error}`. A failed lookup yields `sources: []` with `error` set to the reason, which `listSources()` passes on as `projectsError` and the browser shows as a sidebar warning (see [protocol.md](protocol.md) `/api/sources`).
 
 ## Truncation
 

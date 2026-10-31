@@ -94,7 +94,7 @@ All are `GET`/`HEAD`, JSON, and read-only. `source` is a source id from `/api/so
 
 | Path | Params | 200 body |
 |---|---|---|
-| `/api/sources` | — | `{sources:[{id, kind, label}], conductor}` — `kind` is `orchestrator` or `project`; `conductor` is whether `CONDUCTOR_URL` is set. Filesystem roots are never sent. |
+| `/api/sources` | — | `{sources:[{id, kind, label}], conductor, projectsError?}` — `kind` is `orchestrator` or `project`; `conductor` is whether `CONDUCTOR_URL` is set. `projectsError` (a string) is present only when the host `/api/projects` lookup failed, and carries its reason; the sources then hold the orchestrator only. Filesystem roots are never sent. |
 | `/api/tree` | `source` | `{source, tree, truncated}`; `tree` is a dir node `{name, path, index, archived, error, dirs:[node], pages:[{path, name, title}]}` — root has `name:''`, `path:''`; `index` is the dir's `index.md` rel path or `null` and is not repeated in `pages`; `error` is `"READ_FAILED"` when the directory exists but could not be listed, else `null`; dirs and pages are sorted by name. |
 | `/api/page` | `source`, `path` | `{source, path, title, frontmatter, blocks, backlinks:[{path, title}], archived, truncated, error, stale, lowConfidence}` |
 | `/api/lint` | `source` | `{source, now, staleAfterDays, rootIndex, truncated, counts, deadLinks, ambiguousLinks, orphans, unreachableIndexes, lowConfidence, stale}` |
