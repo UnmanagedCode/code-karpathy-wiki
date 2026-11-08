@@ -37,7 +37,7 @@ async function defaultFetchProjects() {
 
 // Never throws, never refuses: every failure mode (no CONDUCTOR_URL, network
 // error, timeout, non-200, non-JSON, project absent from the list, project with
-// no workspace) collapses to null, reported as meta.resolvedWorkspace:null.
+// no workspace) collapses to null, reported as resolvedWorkspace: null.
 // A failed lookup is also logged to stderr, so the reason is not lost.
 // The CONDUCTOR_URL guard sits HERE, ahead of the fetcher, so "no conductor
 // context" does no work at all — no network, and no filesystem either.

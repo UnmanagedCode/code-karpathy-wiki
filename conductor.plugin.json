@@ -1,7 +1,7 @@
 {
   "id": "code-wiki",
   "name": "Code Wiki",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "pluginApi": 1,
   "conventions": [
     {
@@ -10,7 +10,9 @@
       "description": "Maintain a .wiki/ of durable codebase knowledge (gotchas, decisions, glossary) in this project's tree.",
       "file": "conventions/project-wiki.md",
       "scope": "project",
-      "scaffold": { "file": "scaffolds/project-wiki.md" }
+      "scaffold": {
+        "file": "scaffolds/project-wiki.md"
+      }
     },
     {
       "slug": "orchestrator-wiki",
@@ -24,13 +26,16 @@
     "start": "node server.js",
     "healthPath": "/api/health"
   },
-  "frontend": { "path": "/", "navLabel": "Code Wiki" },
+  "frontend": {
+    "path": "/",
+    "navLabel": "Code Wiki"
+  },
   "mcp": {
     "endpoint": "/api/mcp",
     "tools": [
       {
         "name": "read_index",
-        "description": "Read the conductor wiki's index pages. Always returns the root `index.md` and `global/index.md`; `project` and `workspace` each add their own index, and `project` also adds the index of the workspace it belongs to. A scope with no page yet is listed in `meta.missing` — a normal answer, not a failure.",
+        "description": "The conductor wiki's index pages for a scope set. Always includes the root `index.md` and `global/index.md`; `project` and `workspace` each add their own index, and `project` also adds the index of the workspace it belongs to. A requested scope with no page yet is reported as missing — a normal answer, not a failure.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -45,6 +50,76 @@
               "minLength": 1,
               "pattern": "^[a-zA-Z0-9_-][a-zA-Z0-9._-]*$",
               "description": "Workspace whose workspaces/<name>/index.md to include. Use when reading across a workspace without naming one of its projects."
+            }
+          }
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "wikiRoot",
+            "resolvedWorkspace",
+            "indexes",
+            "missing"
+          ],
+          "properties": {
+            "wikiRoot": {
+              "type": "string",
+              "description": "Absolute path of the conductor wiki root; every path below is relative to it."
+            },
+            "resolvedWorkspace": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "The workspace the host reports for `project`, verbatim; null when no project was given or it could not be resolved."
+            },
+            "indexes": {
+              "type": "array",
+              "description": "The index pages that exist, broad to narrow (root, global, workspace, project), each at most once.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "scope",
+                  "name",
+                  "path",
+                  "content"
+                ],
+                "properties": {
+                  "scope": {
+                    "type": "string",
+                    "enum": [
+                      "root",
+                      "global",
+                      "workspace",
+                      "project"
+                    ]
+                  },
+                  "name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "The workspace or project name; null for root and global."
+                  },
+                  "path": {
+                    "type": "string",
+                    "description": "Posix path relative to wikiRoot."
+                  },
+                  "content": {
+                    "type": "string",
+                    "description": "The whole file, UTF-8."
+                  }
+                }
+              }
+            },
+            "missing": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Posix paths, relative to wikiRoot, of requested index pages that do not exist or could not be read."
             }
           }
         }

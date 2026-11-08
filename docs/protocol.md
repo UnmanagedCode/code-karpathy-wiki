@@ -15,21 +15,20 @@ The MCP wire contract below covers `/api/mcp` only. The browser routes have thei
 
 ## Wire contract
 
-The conductor POSTs `{tool, arguments, caller:{sessionId, project}}`. `caller` is accepted and ignored — `read_index` is not session-scoped.
+The conductor POSTs `{tool, arguments, caller:{sessionId, project}, format}`. `format` is `"text"` or `"json"`. An absent `format` is answered as text, since a host that predates typed tools sends none; any other value is refused `FORMAT_UNKNOWN`. `caller` is accepted and ignored — `read_index` is not session-scoped.
 
-**HTTP 200 for every well-formed invocation.** Non-200 means a transport failure only:
+**HTTP 200 for every well-formed invocation.** Non-200 means a transport failure or a malformed envelope only:
 
 | Status | Body | When |
 |---|---|---|
-| 200 | `{text, meta}` | success (opts into the raw-text channel) |
-| 200 | `{result: …}` | every domain refusal |
-| 200 | `{error: "unknown tool: <name>"}` | tool name not in the manifest |
-| 400 | `{error}` | `tool` missing/empty, or a body that isn't valid JSON |
+| 200 | `{structured}` | success, `format:"json"` |
+| 200 | `{text, meta}` | success, text format (or no `format`) |
+| 200 | `{error, code}` | every refusal — see [Refusals](#refusals) |
+| 400 | `{error, code:"BAD_REQUEST"}` | `tool` missing/empty |
+| 400 | `{error}` | a body that isn't valid JSON |
 | 405 | `{error}` | wrong method (`Allow` header set) |
 | 413 | `{error}` | request body over 256 KiB |
 | 404 | `{error}` | any other path |
-
-`{error}` is thrown at the model by the host bridge (`code-conductor/src/plugins/mcpBridge.js` throws whenever `body.error != null`). A refusal must therefore never use it — see below.
 
 ## `read_index`
 
@@ -44,9 +43,32 @@ The conductor POSTs `{tool, arguments, caller:{sessionId, project}}`. `caller` i
 
 No `required` array — both arguments are optional and may be combined. The declared `pattern` string-equals `SEGMENT_RE.source` in `src/paths.js`; `tests/manifest.test.mjs` asserts that equality so the manifest and runtime layers cannot drift.
 
-### Success — the `{text, meta}` raw-text channel
+### Output schema
 
-A success opts into the host's raw-text channel: `text` and `meta` ride at the **top level** of the body, not nested under `result`. The conductor bridge (`code-conductor/src/plugins/mcpBridge.js`) emits `meta` as one compact-JSON block and each entry of `text` as its own raw, unescaped content block — far cheaper and more legible than escaping the bodies into a single JSON string. Only the success path opts in; refusals still ride in `{result}` (see Refusals below).
+Declared as `outputSchema` on the manifest tool entry and checked against the host's schema subset by `tests/manifest.test.mjs` (via the test-only port `tests/_jsonSchemaSubset.mjs`). Fields: `wikiRoot`, `resolvedWorkspace` (string or `null`), `indexes` (`[{scope, name, path, content}]`), `missing` (`[path]`).
+
+```jsonc
+{
+  "wikiRoot": "/…/.conduct/wiki",
+  "resolvedWorkspace": "CC-Dev",
+  "indexes": [
+    { "scope": "root", "name": null, "path": "index.md", "content": "# Orchestrator wiki\n…" },
+    { "scope": "project", "name": "demo", "path": "projects/demo/index.md", "content": "…" }
+  ],
+  "missing": ["global/index.md"]
+}
+```
+
+### JSON format — `{structured}`
+
+- The complete data, never cut: `indexes[].content` is the whole file.
+- `scope` is `root`, `global`, `workspace` or `project`; `name` is the workspace or project name, `null` for `root` and `global`; `path` is posix, relative to `wikiRoot`.
+- `missing` holds the same relative paths as the text meta's `missing`; there is no `truncated`.
+- Order and dedupe are as in the text format: broad → narrow, deduped by resolved absolute path.
+
+### Text format — `{text, meta}`
+
+`text` and `meta` ride at the **top level** of the body. The host renders `meta` as one compact-JSON block and each entry of `text` as its own raw, unescaped block.
 
 ```jsonc
 {
@@ -55,32 +77,36 @@ A success opts into the host's raw-text channel: `text` and `meta` ride at the *
 }
 ```
 
-- `text` is a list of bodies (the host also accepts a single string). Each is led by a one-line self-labelling HTML comment `<!-- .conduct/wiki/<relpath> -->` followed by a blank line, so a body stays identifiable when blocks are flattened. Everything after that prefix is the file byte-for-byte.
+- `text` is a list of bodies. Each is led by a one-line self-labelling HTML comment `<!-- .conduct/wiki/<relpath> -->` followed by a blank line, so a body stays identifiable when blocks are flattened. Everything after that prefix is the file (unless cut, below).
 - Emission order is broad → narrow — root, `global/`, workspace, project — deduped by resolved absolute path.
-- `meta` stays minimal: exactly `wikiRoot`, `resolvedWorkspace`, `missing`, `truncated`. The bodies carry what exists; `meta` names only what is absent, plus the resolved workspace. There is no `ok:true` on success.
+- `meta` is exactly `wikiRoot`, `resolvedWorkspace`, `missing`, `truncated`; `truncated` exists only in the text view. There is no `ok:true` on success.
 - `missing` / `truncated` hold bare relative paths (`global/index.md`) — the same `<relpath>` that appears inside the header comment. They are disjoint by construction: a file must be read to be truncated.
 - `resolvedWorkspace` is the raw host value, or `null` when it could not be resolved (no `project` argument, no `CONDUCTOR_URL`, conductor unreachable, project absent from the host list, or project unassigned).
 
-Per-file cap: `MAX_FILE_BYTES` in `src/wiki.js` (64 KiB), a module constant — not a tool argument. An over-cap body is cut on a UTF-8 codepoint boundary, gains a trailing `<!-- truncated at 65536 bytes -->` marker, and its path is listed in `meta.truncated`.
+Per-file cap: `MAX_FILE_BYTES` in `src/wiki.js`, a module constant — not a tool argument — applied to the text format only. An over-cap body is cut on a UTF-8 codepoint boundary, gains a trailing `<!-- truncated at <MAX_FILE_BYTES> bytes; the full page is <wikiRoot>/<relpath> -->` marker, and its path is listed in `meta.truncated`.
 
 ### Refusals
 
-Compact JSON at HTTP 200, **never** `{error}` — a refusal is a normal result the model should reason about, not a thrown tool error:
+`{error, code, details?}` at HTTP 200, identical in both formats; no current code carries `details`:
 
 ```jsonc
-{ "result": { "ok": false, "code": "PROJECT_INVALID", "reason": "project must be a single path segment matching …" } }
+{ "error": "project must be a single path segment matching …", "code": "PROJECT_INVALID" }
 ```
 
 | Code | Fires when |
 |---|---|
 | `PROJECT_INVALID` | `project` is not a string, or fails `^[a-zA-Z0-9_-][a-zA-Z0-9._-]*$` |
 | `WORKSPACE_INVALID` | same, for `workspace` |
+| `FORMAT_UNKNOWN` | `format` is present and not `"text"` or `"json"` (`null` included) |
+| `TOOL_UNKNOWN` | tool name not in the manifest; prototype-property names (`toString`, `constructor`, …) included |
+| `BAD_REQUEST` | `arguments` is not an object; also the HTTP 400 for a missing/empty `tool` |
+| `INTERNAL` | an unexpected throw; `error` is `read_index failed unexpectedly: <message>` |
 
 That is the whole set. In particular these are **not** refusals:
 
-- a scope with no `index.md` yet, or an absent wiki root → `meta.missing`;
+- a scope with no `index.md` yet, or an absent wiki root → listed in `missing` (the json field and the text meta's);
 - a project the host doesn't list, or a host that can't be reached → `resolvedWorkspace: null`;
-- a **resolved** workspace name that isn't addressable as a path segment → skipped, listed in `meta.missing`, `resolvedWorkspace` still reports the raw value. The host's workspace rule (`/^[\w][\w \-./]{0,39}$/`) permits spaces and `/`, so this is reachable with a legal upstream name such as `CC Dev`. The caller did nothing wrong, and refusing would deny them every other scope too. An explicit `workspace` **argument** in that shape is still refused — the asymmetry is deliberate.
+- a **resolved** workspace name that isn't addressable as a path segment → skipped, listed in `missing`, `resolvedWorkspace` still reports the raw value. The host's workspace rule (`/^[\w][\w \-./]{0,39}$/`) permits spaces and `/`, so this is reachable with a legal upstream name such as `CC Dev`. The caller did nothing wrong, and refusing would deny them every other scope too. An explicit `workspace` **argument** in that shape is still refused — the asymmetry is deliberate.
 
 ## Browser API
 
@@ -126,7 +152,7 @@ The markdown subset and its limits (nesting depth `MAX_NESTING`, leading tabs ex
 
 ### Errors
 
-Real HTTP statuses with `{error, code}` (these are not MCP routes, so the `{result}` rule does not apply):
+Real HTTP statuses with `{error, code}` (these are not MCP routes):
 
 | Status | `code` | When |
 |---|---|---|

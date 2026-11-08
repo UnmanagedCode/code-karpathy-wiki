@@ -57,7 +57,7 @@ code-karpathy-wiki/
 │   ├── paths.js                # PROJECTS_ROOT -> wikiRoot(), name safety
 │   ├── wiki.js                 # readIndex() — the domain layer
 │   ├── projects.js             # workspace resolution + local project wikis via CONDUCTOR_URL
-│   ├── mcp.js                  # tool dispatch + envelope
+│   ├── mcp.js                  # tool + format dispatch, envelope
 │   ├── sources.js              # browsable wikis: orchestrator + local project .wiki/
 │   ├── markdown.js             # zero-dep markdown subset -> AST
 │   ├── links.js                # [[name]] / md link resolution
@@ -94,7 +94,7 @@ code-karpathy-wiki/
 |---|---|
 | Port | `$PORT`, else `7200`, bound to `127.0.0.1` |
 | Wiki root | `$PROJECTS_ROOT/.conduct/wiki` (else this repo's parent dir) |
-| Per-file cap | 64 KiB, reported via `meta.truncated` |
+| Per-file cap | `MAX_FILE_BYTES` 64 KiB, `read_index` text view only (flagged inline and in the text meta's `truncated`); JSON never truncates |
 | Request body cap | 256 KiB |
 | Conductor lookup timeout | 10 s |
 | Browser page cap | `MAX_PAGE_BYTES` 1 MiB, flagged `truncated` |
@@ -111,7 +111,7 @@ code-karpathy-wiki/
 
 - `scope: "conductor"` conventions aren't yet enabled by any released code-conductor version.
 - Read-only by design — pages are written with ordinary file edits, not through this plugin.
-- Workspace names are addressable only as single path segments. The host permits spaces and `/` in a workspace name; such a workspace gets no wiki directory, and `read_index` reports its scope in `meta.missing`.
+- Workspace names are addressable only as single path segments. The host permits spaces and `/` in a workspace name; such a workspace gets no wiki directory, and `read_index` reports its scope as missing.
 - Workspace resolution needs `CONDUCTOR_URL`. Standalone, `read_index` still serves every explicitly named scope but reports `resolvedWorkspace: null`.
 - The browser confines every walk entry and read by realpath (a symlink resolving outside a wiki root is omitted, or `403 PATH_ESCAPES`); `read_index` still does not — its containment assert guards against argument-driven traversal only. A swap between the realpath check and the read (TOCTOU) is accepted: exploiting either needs write access to the wiki tree.
 - Project wikis are listed only for projects on the `local` system, and only when `CONDUCTOR_URL` is set.
