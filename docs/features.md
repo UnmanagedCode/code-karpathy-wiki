@@ -26,9 +26,9 @@ Entry point for wiki recall. One call returns the index pages for a scope set, s
 | `workspace` | adds `workspaces/<name>/index.md` |
 | `project` | adds `projects/<name>/index.md` **and** resolves that project's workspace from the host, adding its index too |
 
-Both arguments may be given; the scopes are a **union deduped by path**, emitted broad → narrow (root, global, workspace, project). Bodies come back verbatim, each led by a one-line HTML comment naming its path so a body stays identifiable once blocks are flattened.
+Both arguments may be given; the scopes are a **union deduped by path**, emitted broad → narrow (root, global, workspace, project). The tool serves both of the host's output formats. JSON callers (scripts, the REST alias) get each index as `{scope, name, path, content}`, never cut. The text view gives each body verbatim, led by a one-line HTML comment naming its path so a body stays identifiable once blocks are flattened; it cuts a body over `MAX_FILE_BYTES` (`src/wiki.js`) and says so inline with the full file's path.
 
-A scope with no page yet is listed in `meta.missing` with no body — **"no workspace wiki yet" is a normal answer, not an error.** Only a malformed `project`/`workspace` name is refused.
+A scope with no page yet is listed as missing (`missing`) with no body — **"no workspace wiki yet" is a normal answer, not an error.** Only a malformed `project`/`workspace` name is refused.
 
 Nothing about capture depends on the tool.
 

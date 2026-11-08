@@ -38,7 +38,7 @@ export function safeJoin(root, ...segments) {
   return (abs === root || abs.startsWith(root + path.sep)) ? abs : null;
 }
 
-// Label used in meta.missing/meta.truncated and in each body's header comment.
+// Label used in `missing`, `indexes[].path`, the text meta's `truncated`, and each text body's header comment.
 // Always posix-separated so the label is stable across platforms.
 export function relLabel(root, abs) {
   return path.relative(root, abs).split(path.sep).join('/');

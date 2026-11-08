@@ -1,51 +1,45 @@
-import { readIndex } from './wiki.js';
+import { readIndex, indexText, ToolRefusal } from './wiki.js';
 
-// Thin dispatch over wiki.js. Domain refusals are {ok:false, code, reason}
-// objects returned as the {result} payload — a normal MCP outcome the conductor
-// relays to the model to reason about. They are NOT {error}: the host bridge
-// (code-conductor/src/plugins/mcpBridge.js) throws whenever body.error is set,
-// which would surface a refusal as a failed tool call.
+// Envelope + format dispatch over wiki.js. Each tool has a `run` returning the
+// complete data and a `text` view of it:
+//   format "json" -> {structured}  (validated by the host against outputSchema)
+//   format "text" -> {text, meta}  (raw-text channel)
+// Refusals are {error, code, details?} in both formats.
 //
 // `caller` is accepted and ignored: read_index is not session-scoped.
-const handlers = {
-  read_index: (args) => readIndex(args),
-};
+const TOOLS = { read_index: { run: readIndex, text: indexText } };
 
-// A handler may opt into the host's raw-text channel by returning {meta, text}:
-// the host (code-conductor/src/plugins/mcpBridge.js) emits `meta` as one
-// compact-JSON block and each entry of `text` as its own raw, UNESCAPED block —
-// far cheaper and more legible than escaping the bodies into a JSON string.
-// `meta` is required so a refusal {ok:false,code,reason} (no `text`) or any other
-// structured return still rides in {result}.
-export function isRawTextResult(r) {
-  if (!r || typeof r !== 'object') return false;
-  if (!('meta' in r) || !('text' in r)) return false;
-  const { text } = r;
-  if (typeof text === 'string') return true;
-  if (Array.isArray(text)) return text.every((s) => typeof s === 'string');
-  return false;
-}
+const ECHO_MAX = 100;
+const echo = (v) => (typeof v === 'string'
+  ? JSON.stringify(v.length > ECHO_MAX ? `${v.slice(0, ECHO_MAX)}…` : v)
+  : (v === null ? 'null' : typeof v));
+const ok = (body) => ({ status: 200, body });
 
-// Envelope-level problems (missing/invalid `tool`) -> 400. Everything else ->
-// 200 with {text, meta} (raw-text channel), {result} (domain refusal/structured),
-// or {error}. Non-200 is reserved for transport failures.
+// A malformed envelope (missing `tool`) -> 400. Everything else -> 200; non-200
+// is reserved for transport failures.
 export async function handle(body) {
-  const { tool, arguments: args } = body ?? {};
+  const { tool, arguments: args, format: rawFormat } = body ?? {};
   if (typeof tool !== 'string' || tool.length === 0) {
-    return { status: 400, body: { error: 'tool is required and must be a non-empty string' } };
+    return { status: 400, body: { error: 'tool is required and must be a non-empty string', code: 'BAD_REQUEST' } };
   }
-  const fn = handlers[tool];
-  if (!fn) return { status: 200, body: { error: `unknown tool: ${tool}` } };
+  // A host that predates typed tools sends no format: answer it as text.
+  const format = rawFormat === undefined ? 'text' : rawFormat;
+  if (format !== 'text' && format !== 'json') {
+    return ok({ error: `format must be "text" or "json", got ${echo(rawFormat)}`, code: 'FORMAT_UNKNOWN' });
+  }
+  if (!Object.hasOwn(TOOLS, tool)) return ok({ error: `unknown tool: ${echo(tool)}`, code: 'TOOL_UNKNOWN' });
   if (args != null && (typeof args !== 'object' || Array.isArray(args))) {
-    return { status: 200, body: { error: 'arguments must be an object' } };
+    return ok({ error: 'arguments must be an object', code: 'BAD_REQUEST' });
   }
+  const t = TOOLS[tool];
   try {
-    const result = await fn(args ?? {});
-    if (isRawTextResult(result)) {
-      return { status: 200, body: { text: result.text, meta: result.meta } };
-    }
-    return { status: 200, body: { result: result === undefined ? null : result } };
+    const data = await t.run(args ?? {});
+    return ok(format === 'json' ? { structured: data } : t.text(data));
   } catch (e) {
-    return { status: 200, body: { error: e.message } };
+    if (e instanceof ToolRefusal) {
+      return ok({ error: e.message, code: e.code, ...(e.details ? { details: e.details } : {}) });
+    }
+    try { console.error(`code-wiki: tool ${tool} failed:`, e); } catch { /* logging must not fail the reply */ }
+    return ok({ error: `${tool} failed unexpectedly: ${e?.message ?? String(e)}`, code: 'INTERNAL' });
   }
 }

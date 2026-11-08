@@ -4,6 +4,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SEGMENT_RE } from '../src/paths.js';
+import { checkSchema } from './_jsonSchemaSubset.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const manifest = JSON.parse(readFileSync(path.join(ROOT, 'conductor.plugin.json'), 'utf8'));
@@ -75,6 +76,21 @@ test('read_index: both args optional, and declared pattern matches SEGMENT_RE', 
     assert.equal(schema.properties[prop].minLength, 1);
     assert.ok(schema.properties[prop].description.length > 0);
   }
+});
+
+// Pins: the outputSchema stays inside the host's validated subset and is a
+// closed object, so the host accepts the manifest and checks every json reply.
+test("read_index outputSchema is inside cc's subset", () => {
+  const { outputSchema } = manifest.mcp.tools[0];
+  assert.doesNotThrow(() => checkSchema(outputSchema));
+  assert.equal(outputSchema.type, 'object');
+  assert.equal(outputSchema.additionalProperties, false);
+});
+
+// Pins: the description does not describe one output format's internals, since
+// both formats share it.
+test('read_index description is format-neutral', () => {
+  assert.doesNotMatch(manifest.mcp.tools[0].description, /meta\.|\bJSON\b|\bblock/i);
 });
 
 // The name validator must reject a bare dot-run, not lean on the containment

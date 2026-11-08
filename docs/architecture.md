@@ -5,9 +5,9 @@
 ```
 server.js          node:http server — routing, body cap, method guard, security headers, listen/retry
 src/paths.js       PROJECTS_ROOT -> wikiRoot(), SEGMENT_RE, safeJoin(), relLabel(), validateRelPath(), confinedRealpath()
-src/wiki.js        readIndex() — the MCP domain layer; MAX_FILE_BYTES, truncateUtf8()
+src/wiki.js        readIndex() (complete data) + indexText() (text view) — the MCP domain layer; MAX_FILE_BYTES (text view only), truncateUtf8(), ToolRefusal
 src/projects.js    workspace resolution + localProjectWikis() via CONDUCTOR_URL; the test seam
-src/mcp.js         envelope only: {tool, arguments} -> {status, body}
+src/mcp.js         envelope + format dispatch: {tool, arguments, format} -> {status, body}
 src/sources.js     listSources(), getSource(id) — orchestrator + local project .wiki/
 src/markdown.js    parse(text) -> {frontmatter, blocks, title, links}; pure
 src/links.js       buildNameIndex, scopeOf, resolveWiki, resolveHref; pure
@@ -33,7 +33,7 @@ frontend/          the browser page: React + Vite + Tailwind v4 + shadcn/Radix, 
 tests/             node:test via tests/run.mjs; frontend/src/**/*.test.ts(x) via vitest
 ```
 
-The layers are split so tests can hit each one without the one below: `wiki.readIndex` for domain behaviour, `mcp.handle` for the envelope, a real socket only for transport. `src/projects.js` exists to isolate the single network call behind a swappable fetcher, which keeps the whole suite offline.
+The layers are split so tests can hit each one without the one below: `wiki.readIndex` for domain behaviour, `wiki.indexText` for the text view, `mcp.handle` for the envelope, a real socket only for transport. `src/projects.js` exists to isolate the single network call behind a swappable fetcher, which keeps the whole suite offline.
 
 The browser stacks the same way: `sources` → `snapshot` (disk) → `links` → `lint`/`search` → `browse` (HTTP-shaped, no socket) → `server.js`. `markdown`, `links`, `lint` and `search` are pure and tested on in-memory data (`buildSnapshot(source, {rel: text})`); `snapshot`/`sources` on tmp fixture trees; `browse` and `static` as handlers.
 
@@ -67,7 +67,7 @@ On a body over 256 KiB the request is *not* destroyed: tearing down the socket m
 
 `path.resolve` does not follow symlinks, so for `read_index` a symlinked directory or index under `.conduct/wiki/` could point outside. Accepted: `.conduct/` is the conductor's own machine-local tree, and a name is validated by both layers above before it ever reaches the filesystem — so reaching such a link requires write access to that tree, not a crafted argument. The containment assert defends against argument-driven traversal, not against a hostile filesystem.
 
-`read_index` deliberately does **not** use the browser's `confinedRealpath` (below): its behaviour is pinned by the test `read_index does not apply the browser realpath check (deliberate, see architecture)`. The recommended follow-up is to adopt it, reporting an escaping index in `meta.missing`; that test changes with that decision.
+`read_index` deliberately does **not** use the browser's `confinedRealpath` (below): its behaviour is pinned by the test `read_index does not apply the browser realpath check (deliberate, see architecture)`. The recommended follow-up is to adopt it, reporting an escaping index in `missing`; that test changes with that decision.
 
 ## Workspace resolution
 
@@ -75,15 +75,15 @@ On a body over 256 KiB the request is *not* destroyed: tearing down the socket m
 
 **No filesystem fallback.** Workspace membership is host state with no on-disk representation we may read, so the `CONDUCTOR_URL` guard sits ahead of the fetcher: with no conductor context the function does no work at all — no network *and* no disk — and returns `null`.
 
-`workspaceForProject()` never throws and never refuses. Timeout, non-200, non-JSON, no project list, project absent, project unassigned — every path collapses to `null`, surfacing as `meta.resolvedWorkspace: null`. A failed lookup is also logged to stderr with its reason. The fetch timeout is `FETCH_TIMEOUT_MS`, kept well inside the host's 30 s MCP budget.
+`workspaceForProject()` never throws and never refuses. Timeout, non-200, non-JSON, no project list, project absent, project unassigned — every path collapses to `null`, surfacing as `resolvedWorkspace: null`. A failed lookup is also logged to stderr with its reason. The fetch timeout is `FETCH_TIMEOUT_MS`, kept well inside the host's 30 s MCP budget.
 
 `localProjectWikis()` (the browser's project sources) returns `{sources, error}`. A failed lookup yields `sources: []` with `error` set to the reason, which `listSources()` passes on as `projectsError` and the browser shows as a sidebar warning (see [protocol.md](protocol.md) `/api/sources`).
 
 ## Truncation
 
-`MAX_FILE_BYTES = 64 * 1024`, a module constant. Files are read as a `Buffer` — you cannot cap bytes on a decoded string. `truncateUtf8` walks back from the cut point over UTF-8 continuation bytes (`0b10xxxxxx`) and drops the straddling sequence whole. Deliberately not `TextDecoder` in non-fatal mode, which would substitute a `U+FFFD` the source file never contained.
+`MAX_FILE_BYTES = 64 * 1024`, a module constant applied by `indexText` only; the JSON view returns every file whole. `indexText` measures and cuts each body's UTF-8 bytes (`Buffer.from(content)`), never the decoded string's length. `truncateUtf8` walks back from the cut point over UTF-8 continuation bytes (`0b10xxxxxx`) and drops the straddling sequence whole. Deliberately not `TextDecoder` in non-fatal mode, which would substitute a `U+FFFD` the source file never contained.
 
-Sizing: live index pages run ~6 KiB and the largest wiki page ~36 KiB, so the cap never bites in practice while bounding a worst case of 5 scopes × 64 KiB ≈ 320 KiB per call. There is no total cap.
+Sizing: live index pages run ~6 KiB and the largest wiki page ~36 KiB, so the cap never bites in practice while bounding a worst case of 5 scopes × 64 KiB ≈ 320 KiB per text reply. A JSON reply has no size bound, and the host applies no ceiling to a `structured` reply either. There is no total cap.
 
 ## Browser confinement
 
@@ -144,4 +144,5 @@ Browser test patterns:
 - `tests/lint.test.mjs` has a **live-shaped fixture** (root → `global/` → families + `archive/`, `workspaces/W/`, `projects/P/`, page-relative `[[../fam/x]]`, backticked syntax examples) that must lint clean — the false-positive tripwire.
 - `_setParse(fn)` and `_setMaxWalkEntries(n)` (`src/snapshot.js`) are seams in the `_setProjectFetcher` style — pass `null` to restore; `resetEnv()` resets both. They let a test observe what the parser receives, force a parse failure, or trip the walk cap on a small symlink diamond.
 - Parser availability tests time hostile 100k-character delimiter runs against a generous bound, so a quadratic regression fails the suite rather than slowing it.
+- `tests/_jsonSchemaSubset.mjs` is a test-only port of the host's `checkSchema`/`validate`; every json success reply in the node suite is validated against the manifest `outputSchema` — through the `jsonCall` helper in `tests/mcpFormats.test.mjs` and in the transport test in `tests/readIndex.test.mjs`. Refusals carry no `structured` and are checked by shape instead. `CODE_CONDUCTOR_DIR` opts into comparing the port's keyword and type sets with the host's source.
 - Tests never touch the real `.conduct/` tree.
