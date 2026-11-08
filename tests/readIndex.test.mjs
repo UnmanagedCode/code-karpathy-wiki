@@ -1,11 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { promises as fs } from 'node:fs';
+import { promises as fs, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { readIndex, indexText, ToolRefusal, MAX_FILE_BYTES } from '../src/wiki.js';
 import { handle } from '../src/mcp.js';
 import { createServer } from '../server.js';
+import { validate } from './_jsonSchemaSubset.mjs';
 import { freshWiki, cleanup, resetEnv, useProjects, useFailingConductor } from './_helpers.mjs';
+
+const { outputSchema } = JSON.parse(readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'conductor.plugin.json'), 'utf8')).mcp.tools[0];
 
 const header = (rel) => `<!-- .conduct/wiki/${rel} -->\n\n`;
 
@@ -314,6 +318,7 @@ test('transport: health, routing, and the non-200 cases', async () => {
       const jbody = await js.json();
       assert.deepEqual(Object.keys(jbody), ['structured']);
       assert.equal(jbody.structured.indexes.length, 2);
+      assert.deepEqual(validate(outputSchema, jbody.structured), []);
 
       assert.equal((await post('{')).status, 400);
       assert.equal((await post('x'.repeat(300 * 1024))).status, 413);

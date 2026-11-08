@@ -121,7 +121,8 @@ test('unknown format is refused', async () => {
 test('prototype names are TOOL_UNKNOWN in both formats', async () => {
   for (const tool of ['toString', 'constructor', '__proto__', 'hasOwnProperty', 'valueOf']) {
     for (const format of ['text', 'json']) {
-      const { body } = await handle({ tool, arguments: {}, format });
+      const { status, body } = await handle({ tool, arguments: {}, format });
+      assert.equal(status, 200, tool);
       assert.equal(body.code, 'TOOL_UNKNOWN', tool);
       assert.deepEqual(Object.keys(body).sort(), ['code', 'error']);
     }
@@ -139,8 +140,12 @@ test('refusal shapes are {error, code} and identical across formats', async () =
   ];
   await withWiki(async () => {
     for (const [req, code] of cases) {
-      const t = (await handle({ ...req, format: 'text' })).body;
-      const j = (await handle({ ...req, format: 'json' })).body;
+      const tr = await handle({ ...req, format: 'text' });
+      const jr = await handle({ ...req, format: 'json' });
+      assert.equal(tr.status, 200, code);
+      assert.equal(jr.status, 200, code);
+      const t = tr.body;
+      const j = jr.body;
       for (const body of [t, j]) {
         assert.deepEqual(Object.keys(body).sort(), ['code', 'error']);
         assert.equal(body.code, code);

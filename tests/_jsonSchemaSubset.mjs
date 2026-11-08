@@ -5,11 +5,11 @@
 // CODE_CONDUCTOR_DIR test in jsonSchemaSubset.test.mjs compares the keyword and
 // type sets with the host's source.
 //
-// A strict validator for the JSON Schema subset src/mcp/outputSchemas.ts is
+// A strict validator for the JSON Schema subset code-conductor/src/mcp/outputSchemas.ts is
 // written in: type (incl. unions), properties, required, additionalProperties
 // (boolean | schema), items, enum, const, anyOf, description. A plugin tool's
-// manifest `outputSchema` is held to the same subset (src/plugins/manifest.ts),
-// and the bridge validates each typed reply against it (src/plugins/mcpBridge.ts).
+// manifest `outputSchema` is held to the same subset (code-conductor/src/plugins/manifest.ts),
+// and the bridge validates each typed reply against it (code-conductor/src/plugins/mcpBridge.ts).
 //
 // STRICT in two ways, so a schema can never lean on a keyword this validator
 // would silently ignore:

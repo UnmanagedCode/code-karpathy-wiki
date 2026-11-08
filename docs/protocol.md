@@ -87,7 +87,7 @@ Per-file cap: `MAX_FILE_BYTES` in `src/wiki.js`, a module constant — not a too
 
 ### Refusals
 
-`{error, code, details?}` at HTTP 200, identical in both formats; no current code carries `details`:
+`{error, code, details?}` at HTTP 200, identical in both formats, except the malformed-envelope 400 (missing/empty `tool`), which carries `{error, code:"BAD_REQUEST"}`. No current code carries `details`:
 
 ```jsonc
 { "error": "project must be a single path segment matching …", "code": "PROJECT_INVALID" }
