@@ -12,7 +12,9 @@
 
 Routing rule (`conventions/orchestrator-wiki.md`): write at the **narrowest scope the fact is true of**. A workspace-wide fact lives once under `workspaces/<name>/` and is cross-linked from each member's `projects/<name>/index.md` — never copied into them. This is the duplication the scope exists to prevent: before it, such facts were either repeated across every member project's pages or over-promoted to `global/`.
 
-Workspace membership is mutable — projects move between workspaces, and deleting a workspace clears its members' `workspace` field — so a `workspaces/<name>/` page can outlive its group. The convention's "Maintain, don't just append" bullet covers re-homing or retiring an orphaned one.
+Workspace membership is mutable — projects move between workspaces, and deleting a workspace clears its members' `workspace` field — so a `workspaces/<name>/` page can outlive its group. The skill's "Maintain, don't just append" section covers re-homing or retiring an orphaned one.
+
+The convention is split at a `<!-- cc:skill … -->` marker. Recall, scope routing, the "save a memory" redirect and a pointer stay inline in the conductor's system prompt; the writing procedure (timeless facts, page and index shape, maintenance) is the skill `cc-conductor-code-wiki:orchestrator-wiki`, loaded only when the conductor writes or maintains a page. It is gated by the same toggle, plugin-enabled state and scope as the inline text.
 
 Project codebase knowledge is **not** in this wiki: it belongs in that project's in-tree `<project>/.wiki/`, written by a worker under the `project-wiki` convention.
 
