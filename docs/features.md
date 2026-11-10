@@ -8,7 +8,7 @@
 |---|---|---|
 | Where | `.wiki/`, committed | `.wiki/` in the main checkout, untracked; `/.wiki` in the file `git rev-parse --git-path info/exclude` names |
 | A worktree sees it | as tracked files on its branch | through a `.wiki` symlink to the main checkout's copy, made by `.code-conductor/post-worktree-create.sh` |
-| A worker's edit | in the same diff as the change that taught it | from a worktree: listed under `Deferred .wiki edits` in the hand-off, applied in the main checkout after merge, never in a diff |
+| A worker's edit | in the same diff as the change that taught it | from a worktree: listed under `Deferred .wiki edits` in the hand-off, applied in the main checkout by whoever merges the branch, never in a diff; setup writes the main checkout directly |
 
 The convention is split at a `<!-- cc:skill … -->` marker. The inline rules (read path, where an edit goes) load into every worker's system prompt. The skill `cc-project-code-wiki:project-wiki` (page and index rules) loads on demand, gated like the inline text. `conventions/project-wiki.md` is the only home of those rules.
 
