@@ -13,7 +13,7 @@
 The convention is split at a `<!-- cc:skill … -->` marker. The inline rules (read path, where an edit goes) load into every worker's system prompt. The skill `cc-project-code-wiki:project-wiki` (page and index rules) loads on demand, gated like the inline text. `conventions/project-wiki.md` is the only home of those rules.
 
 Out-of-tree hook:
-- cc runs `<main checkout>/.code-conductor/post-worktree-create.sh` from the working tree, tracked or not, and reports its `source` as `in-tree`. It runs with cwd in the new worktree and `CC_PARENT_PATH` set to the main checkout. The scaffold appends to an existing hook, never overwrites it, and commits it; written from a worktree, it acts once merged.
+- cc runs `<main checkout>/.code-conductor/post-worktree-create.sh` from the working tree, tracked or not, and reports its `source` as `in-tree`. It runs with cwd in the new worktree, `CC_WORKTREE_PATH` set to the new worktree and `CC_PARENT_PATH` set to the main checkout. The scaffold appends to an existing hook, never overwrites it, and commits it; written from a worktree, it acts once merged.
 - The scaffold's block adds `/.wiki` to the shared exclude file once, then symlinks `${CC_PARENT_PATH}/.wiki` to `.wiki` unless one exists. With no parent `.wiki` it warns and skips.
 - The hook runs only at worktree creation. A worktree created before `.wiki` existed has no symlink until one is made by hand.
 
