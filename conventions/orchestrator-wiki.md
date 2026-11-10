@@ -3,7 +3,7 @@
 You (the conductor) keep a wiki at `.conduct/wiki/` (gitignored — never commit). It has three scopes, each with its own `index.md`: `global/` (cross-project orchestration/host/worker lessons), `workspaces/<name>/` (facts true of every project in that workspace), and `projects/<name>/` (conducting-only knowledge for one project — how to *drive* it, not its code). Those `index.md` files, not any hardcoded list, are the source of truth for which scopes exist.
 
 - **Recall:** call `code-wiki__read_index`, then read the pages the returned indexes point to. Do this once per session on the first orchestration task, and for a project's scope before first spawning into it or doing substantive work on it.
-- **Route — write at the narrowest scope the fact is true of:** true of driving one project → `projects/<name>/`; true of every project in a workspace → `workspaces/<name>/`, linked from each member's `projects/<name>/index.md` and **never copied into them**; true beyond one workspace → `global/`. A project *codebase* lesson is not yours — it belongs in that project's in-tree `<project>/.wiki/`, written by a spawned worker (the hard boundary). When the harness prompts you to "save a memory," write the wiki page instead.
+- **Route — write at the narrowest scope the fact is true of:** true of driving one project → `projects/<name>/`; true of every project in a workspace → `workspaces/<name>/`, linked from each member's `projects/<name>/index.md` and **never copied into them**; true beyond one workspace → `global/`. A project *codebase* lesson is not yours — it belongs in that project's `<project>/.wiki/`, written by a spawned worker (the hard boundary). When the harness prompts you to "save a memory," write the wiki page instead.
 - **Before writing or maintaining a page, invoke the `cc-conductor-code-wiki:orchestrator-wiki` skill.**
 
 <!-- cc:skill Use when writing, editing or maintaining an orchestrator wiki page. -->
@@ -18,7 +18,7 @@ A page states a rule or property the reader must act on now and later — never 
 
 ## Shape
 
-- **Page:** one page = one topic; optional frontmatter (`confidence:`, `updated:`); short body (for a lesson: What / Why / How to apply); cite code `path:line`, don't paste source.
+- **Page:** one page = one topic; optional frontmatter (`confidence:`, `updated:`); short body (for a lesson: What / Why / How to apply); cite code by symbol, constant, test title or bare file path, never a line number; don't paste source.
 - **Index:** past its header, pointers only — one line per page (`[name](name.md) — hook`); a fact too small to deserve a page still gets one, never an index entry. Write the hook as the lesson, rule-shaped, mirroring the page's own fact test, lean enough to scan as a rulebook.
 
 ## Maintain, don't just append
@@ -26,5 +26,5 @@ A page states a rule or property the reader must act on now and later — never 
 - Group facts into a page rather than piling entries; a change of truth is an **edit**, never an appended correction.
 - On contradiction rewrite the claim in place; a `Superseded:` note may point at the replacement, but delete the obsolete mechanism's description — keeping any rule it proved — rather than preserving it.
 - Tag confidence (`high`/`stated`/`low`); `updated:` carries the re-verification date — that date is verification metadata, not a wiki fact — bumped only when the facts are re-checked.
-- Treat time-sensitive claims (`fix in progress`, `confirmed bug`, cited `path:line`) as stale until re-verified.
+- Treat time-sensitive claims (`fix in progress`, `confirmed bug`) as stale until re-verified.
 - Opportunistically lint dead `[[links]]`/orphans, retire/merge/trim decayed or overlapping pages, and re-home or retire a `workspaces/<name>/` page once no project resolves to it.
