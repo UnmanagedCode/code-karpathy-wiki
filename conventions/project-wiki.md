@@ -4,12 +4,12 @@ This project keeps a `.wiki/` of durable codebase knowledge a reader can't quick
 
 - **Before planning:** read `.wiki/index.md`, then the category index it routes you to, if any, then the 1–3 pages relevant to your task.
 - **When you learn something durable, record it.** Where depends on what `.wiki` is in your checkout:
-  - **A symlink** — an out-of-tree wiki seen from a worktree. Unless your brief is setting the wiki up, don't write to it, through the link or by any other path. Put the exact page edits in your hand-off under a `Deferred .wiki edits` heading, for whoever merges the branch to apply in the main checkout.
-  - **Missing** — don't create it unless your brief is setting the wiki up; defer your edits as for a symlink.
-  - **A real directory** (not a symlink) — edit the pages in the same diff as the change that taught you, not a separate commit. If `git check-ignore -q .wiki` succeeds (an out-of-tree main checkout), edit it in place and leave it uncommitted.
-- **Before writing a page or a deferred edit, invoke the `cc-project-code-wiki:project-wiki` skill.**
+  - **A symlink** — the main checkout's live copy, shared by every worktree: your edits land immediately and never appear in your diff, so list the pages you changed in your hand-off.
+  - **A real directory** (not a symlink) — edit the pages in the same diff as the change that taught you, not a separate commit. If `git check-ignore -q .wiki` succeeds (an out-of-tree main checkout), leave them uncommitted.
+  - **Missing** — don't create it unless your brief is setting the wiki up; list what you would have recorded in your hand-off.
+- **Before writing a page, invoke the `cc-project-code-wiki:project-wiki` skill.**
 
-<!-- cc:skill Use when writing or editing a project wiki page or a deferred wiki edit. -->
+<!-- cc:skill Use when writing or editing a project wiki page. -->
 
 # Writing project wiki pages
 
@@ -35,7 +35,3 @@ This project keeps a `.wiki/` of durable codebase knowledge a reader can't quick
 - When the truth changes, edit the page; never append a correction. On a contradiction, rewrite the claim in place.
 - A page marked `reviewed: true` is never overwritten: merge your change into it.
 - When a page moves or is renamed, update every index line and link that points to it.
-
-## Deferred edits
-
-Give each as the page path plus the text to apply: the whole page when it is new, the replaced and replacing text when it exists. Include the index lines the edit adds or changes.

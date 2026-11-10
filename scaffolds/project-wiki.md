@@ -7,7 +7,7 @@ Set up this project's `.wiki/`: durable codebase knowledge a reader can't quickl
 Ask the user with `AskUserQuestion`; don't choose for them. Put the tradeoff in the options:
 
 - **In-tree (Recommended)** — `.wiki/` is committed: reviewed and merged like code, and present in every worktree. A wiki edit lands in the same diff as the change that taught it.
-- **Out-of-tree** — `.wiki/` is untracked, excluded through `.git/info/exclude`, and lives in the main checkout. Every worktree sees that one live copy through a symlink. The repo carries no wiki, and an edit made in a worktree is deferred to the hand-off and applied in the main checkout after merge, never reviewed in a diff.
+- **Out-of-tree** — `.wiki/` is untracked, excluded through `.git/info/exclude`, and lives in the main checkout. Every worktree sees that one live copy through a symlink. The repo carries no wiki, and an edit made in a worktree lands in that live copy immediately, never reviewed in a diff.
 
 ## 2a. In-tree
 
@@ -15,7 +15,7 @@ Create `.wiki/` in your checkout, seed it (step 3) and commit it.
 
 ## 2b. Out-of-tree
 
-The main checkout is the first path `git worktree list` prints. Setting the wiki up is exempt from the convention's symlink rule: write the wiki there directly, even from a worktree.
+The main checkout is the first path `git worktree list` prints.
 
 1. Add `/.wiki` to the exclude file `git rev-parse --git-path info/exclude` names, unless it is already there. Every worktree shares that one file. The entry has no trailing slash, so it matches a worktree's symlink as well as the main checkout's directory.
 2. Create `<main checkout>/.wiki/` as a real directory and seed it (step 3). Never `git add` it.

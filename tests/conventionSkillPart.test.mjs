@@ -74,11 +74,11 @@ test('orchestrator-wiki: skill part holds the procedure and does not repeat inli
 });
 
 test('project-wiki: inline part keeps what must act before the skill loads', () => {
-  const { inline, skill } = split('project-wiki');
-  for (const s of ['.wiki/index.md', 'category index', 'symlink', 'Deferred .wiki edits', 'same diff', 'git check-ignore']) {
+  const { inline, lines } = split('project-wiki');
+  for (const s of ['.wiki/index.md', 'category index', 'symlink', 'list the pages you changed', 'same diff', 'git check-ignore']) {
     assert.ok(inline.includes(s), `inline has ${s}`);
   }
-  assert.ok(!skill.includes('Deferred .wiki edits'), 'the hand-off heading is named once, inline');
+  assert.ok(!lines.join('\n').includes('Deferred'), 'no deferred-edit mechanism');
 });
 
 test('project-wiki: skill part holds the page-writing rules', () => {
