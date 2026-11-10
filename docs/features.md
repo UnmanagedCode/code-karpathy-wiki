@@ -1,5 +1,22 @@
 # Features
 
+## The project wiki
+
+`conventions/project-wiki.md` (scope `project`) is composed into each selecting project's `CONVENTIONS.md`. A project's `.wiki/` uses one of two setups, chosen with the user by the scaffold (`scaffolds/project-wiki.md`):
+
+| | In-tree | Out-of-tree |
+|---|---|---|
+| Where | `.wiki/`, committed | `.wiki/` in the main checkout, untracked; `/.wiki` in the file `git rev-parse --git-path info/exclude` names |
+| A worktree sees it | as tracked files on its branch | through a `.wiki` symlink to the main checkout's copy, made by `.code-conductor/post-worktree-create.sh` |
+| A worker's edit | in the same diff as the change that taught it | from a worktree: written through the symlink into the main checkout's live copy at once, never in a diff; the hand-off lists the changed pages |
+
+The convention is split at a `<!-- cc:skill … -->` marker. The inline rules (read path, where an edit goes) load into every worker's system prompt. The skill `cc-project-code-wiki:project-wiki` (page and index rules) loads on demand, gated like the inline text. `conventions/project-wiki.md` is the only home of those rules.
+
+Out-of-tree hook:
+- cc runs `<main checkout>/.code-conductor/post-worktree-create.sh` from the working tree, tracked or not, and reports its `source` as `in-tree`. It runs with cwd in the new worktree, `CC_WORKTREE_PATH` set to the new worktree and `CC_PARENT_PATH` set to the main checkout. The scaffold appends to an existing hook, never overwrites it, and commits it; written from a worktree, it acts once merged.
+- The scaffold's block adds `/.wiki` to the shared exclude file once, then symlinks `${CC_PARENT_PATH}/.wiki` to `.wiki` unless one exists. With no parent `.wiki` it warns and skips.
+- The hook runs only at worktree creation. A worktree created before `.wiki` existed has no symlink until one is made by hand.
+
 ## The three-scope orchestrator wiki
 
 `.conduct/wiki/` (machine-local, gitignored) splits into three scopes, each with its own `index.md`:
@@ -16,7 +33,7 @@ Workspace membership is mutable — projects move between workspaces, and deleti
 
 The convention is split at a `<!-- cc:skill … -->` marker. Recall, scope routing, the "save a memory" redirect and a pointer stay inline in the conductor's system prompt; the writing procedure (timeless facts, page and index shape, maintenance) is the skill `cc-conductor-code-wiki:orchestrator-wiki`, loaded only when the conductor writes or maintains a page. It is gated by the same toggle, plugin-enabled state and scope as the inline text.
 
-Project codebase knowledge is **not** in this wiki: it belongs in that project's in-tree `<project>/.wiki/`, written by a worker under the `project-wiki` convention.
+Project codebase knowledge is **not** in this wiki: it belongs in that project's `<project>/.wiki/`, written by a worker under the `project-wiki` convention.
 
 ## `read_index` (MCP tool)
 
@@ -47,7 +64,7 @@ Embedded, the page uses the conductor's palette and fonts and follows its light/
 | Source | Id | Listed when |
 |---|---|---|
 | Orchestrator wiki `.conduct/wiki/` | `orchestrator` | always (an absent dir is an empty tree) |
-| A project's in-tree `<project>/.wiki/` | `p:<name>` | `CONDUCTOR_URL` is set, the host row's `system` is `local` (or absent), its `path` is absolute, and `<path>/.wiki` is a directory (a symlinked `.wiki` counts) |
+| A project's `<project>/.wiki/` | `p:<name>` | `CONDUCTOR_URL` is set, the host row's `system` is `local` (or absent), its `path` is absolute, and `<path>/.wiki` is a directory (a symlinked `.wiki` counts) |
 
 Remote-system projects, degraded rows (`path: ''`) and worktrees are never listed. A failing conductor lookup leaves the orchestrator only, and the sidebar shows a warning naming the reason ("Project wikis are unavailable: …").
 

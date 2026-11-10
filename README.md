@@ -8,16 +8,16 @@ It registers under the plugin id `code-wiki`, so its tools appear as `code-wiki_
 
 It encodes a two-wiki model:
 
-- **Project (worker) wiki** — `<project>/.wiki/`, in-tree, holds durable *codebase* knowledge (overview, architecture, gotchas, decisions, glossary). Written by that project's workers, reviewed/merged like code.
+- **Project (worker) wiki** — `<project>/.wiki/`, holds durable *codebase* knowledge (gotchas, decisions, glossary). Written by that project's workers. In-tree (committed, reviewed/merged like code) or out-of-tree (untracked in the main checkout, symlinked into each worktree), chosen with the user when the wiki is scaffolded.
 - **Orchestrator wiki** — `.conduct/wiki/`, machine-local and gitignored, holds the *conductor's* knowledge in three scopes, each with its own `index.md`: `global/` (cross-project orchestration/host/worker lessons), `workspaces/<name>/` (facts true of every project in a workspace), and `projects/<name>/` (conducting-only knowledge per project — how to drive it, not the codebase). Conductor-written.
 
 It ships two conventions, one scaffold, one MCP tool and one browser page:
 
 | Slug | Kind | Scope | Purpose |
 |---|---|---|---|
-| `project-wiki` | convention | project | Appended to a project's `CLAUDE.md`; tells every worker to read/update `.wiki/` as part of its normal reviewed diff. |
+| `project-wiki` | convention | project | Composed into a project's `CONVENTIONS.md`; tells every worker to read `.wiki/` before planning and where its edits go. Its page-writing rules are the skill `cc-project-code-wiki:project-wiki`. |
 | `orchestrator-wiki` | convention | conductor | Composed into `.conduct/CONDUCT.md`; tells the conductor how to read/write `.conduct/wiki/`. |
-| `project-wiki` (scaffold) | scaffold | — | One-time setup directive folded into the first worker's brief, to seed `.wiki/` in-tree or out-of-tree. |
+| `project-wiki` (scaffold) | scaffold | — | One-time setup directive folded into the first worker's brief: asks the user in-tree vs out-of-tree, then seeds `.wiki/`. |
 | `read_index` | MCP tool | — | Returns the wiki index pages for a scope set — root + `global/`, optionally a project's and/or a workspace's. The entry point for wiki recall. |
 | **Code Wiki** | browser page | — | Read-only browser in the conductor's nav: a tree per wiki (orchestrator + each local project's `.wiki/`), rendered pages with `[[name]]` resolution and backlinks, a Health (lint) view, and full-text search. |
 
