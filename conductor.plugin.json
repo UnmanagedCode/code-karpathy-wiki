@@ -7,7 +7,7 @@
     {
       "slug": "project-wiki",
       "name": "Project Wiki",
-      "description": "Maintain a .wiki/ of durable codebase knowledge (gotchas, decisions, glossary) in this project's tree.",
+      "description": "Maintain a .wiki/ of durable codebase knowledge (gotchas, decisions, glossary), in-tree or out-of-tree.",
       "file": "conventions/project-wiki.md",
       "scope": "project",
       "scaffold": {
