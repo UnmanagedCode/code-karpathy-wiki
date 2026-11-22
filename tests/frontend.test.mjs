@@ -12,18 +12,17 @@ test('frontend uses no HTML-string sinks, eval, hash writes, window.parent or cc
   for (const [n, src] of files) assert.equal(banned.test(src), false, `${n}: ${src.match(banned)?.[0]}`);
 });
 
-// Invariant: every URL is relative (cc mounts the page under /plugins/code-wiki/), except the two host URLs in index.html.
+// Invariant: every URL is relative (cc mounts the page under /plugins/code-wiki/, possibly behind a URL prefix),
+// the two host URLs in index.html included: they climb from the plugin root to the host root.
 test('frontend uses no root-relative URLs', () => {
   const rootRel = /(?:src|href)\s*=\s*["']\/|['"`]\/api|fetch\(\s*['"`]\//g;
-  const HOST = new Set(['src="/pluginBridge.js"', 'href="/pluginTheme.css"']);
   for (const [n, src] of files) {
     for (const m of src.matchAll(rootRel)) {
-      const at = src.slice(m.index).match(/^(?:src|href)\s*=\s*"[^"]*"/)?.[0];
-      assert.ok(n === 'index.html' && HOST.has(at), `${n}: ${at ?? m[0]}`);
+      assert.fail(`${n}: ${src.slice(m.index, m.index + 40)}`);
     }
   }
-  assert.match(html, /src="\/pluginBridge\.js"/);
-  assert.match(html, /href="\/pluginTheme\.css"/);
+  assert.match(html, /src="\.\.\/\.\.\/pluginBridge\.js"/);
+  assert.match(html, /href="\.\.\/\.\.\/pluginTheme\.css"/);
 });
 
 // Invariant: the CSP forbids inline script, so the shell has none, and no inline style either.
@@ -38,6 +37,6 @@ test('index.html head order: bridge, theme, theme-init, entry', () => {
   const order = headTags(html)
     .filter((t) => t.tag === 'script' || (t.tag === 'link' && /rel="stylesheet"/.test(t.attrs)))
     .map((t) => t.attrs.match(/(?:src|href)="([^"]+)"/)[1]);
-  assert.deepEqual(order, ['/pluginBridge.js', '/pluginTheme.css', 'theme-init.js', './src/main.tsx']);
+  assert.deepEqual(order, ['../../pluginBridge.js', '../../pluginTheme.css', 'theme-init.js', './src/main.tsx']);
   assert.match(headTags(html).find((t) => t.attrs.includes('main.tsx')).attrs, /type="module"/);
 });
