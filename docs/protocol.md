@@ -112,7 +112,7 @@ That is the whole set. In particular these are **not** refusals:
 
 ### Mounting
 
-The host mounts the plugin at `/plugins/code-wiki/` and proxies **every** path and method to this backend with the prefix stripped (`/plugins/code-wiki/api/tree?source=x` arrives as `/api/tree?source=x`); a bare `/plugins/code-wiki` is redirected to the trailing-slash form. The nav entry opens the backend root in a full-page iframe, so `frontend.path` is `/`. **Every URL in `frontend/` must be relative with no leading `/`** (`./assets/…`, `api/tree?…`, `?view=…`) — a leading `/` would hit the host itself. The only exceptions are the two host-served URLs in `frontend/index.html`: `/pluginBridge.js` and `/pluginTheme.css` (which names the host's `/pluginTheme/fonts/…`). `tests/frontend.test.mjs` scans `frontend/index.html`, `frontend/public/` and `frontend/src/` for violations; `tests/dist.test.mjs` checks the built `frontend/dist`.
+The host mounts the plugin at `/plugins/code-wiki/` and proxies **every** path and method to this backend with the prefix stripped (`/plugins/code-wiki/api/tree?source=x` arrives as `/api/tree?source=x`); a bare `/plugins/code-wiki` is redirected to the trailing-slash form. The nav entry opens the backend root in a full-page iframe, so `frontend.path` is `/`. **Every URL in `frontend/` must be relative with no leading `/`** (`./assets/…`, `api/tree?…`, `?view=…`) — a leading `/` would hit the host itself. The two host-served URLs in `frontend/index.html`, `../../pluginBridge.js` and `../../pluginTheme.css`, follow the same rule: the page sits at the plugin root (`/plugins/code-wiki/`), so `../../` climbs to the host root under any URL prefix cc is served at (`pluginTheme.css` names the host's `/pluginTheme/fonts/…`). `tests/frontend.test.mjs` scans `frontend/index.html`, `frontend/public/` and `frontend/src/` for violations; `tests/dist.test.mjs` checks the built `frontend/dist`.
 
 ### Routes
 
@@ -176,8 +176,8 @@ Every response — browser API, static, `/api/health`, `/api/mcp`, and every 400
 
 | Directive | Admits | For |
 |---|---|---|
-| `script-src 'self'` | same-origin script files only: no inline script, no `eval` | the bundle, `theme-init.js`, the host's `/pluginBridge.js` |
-| `style-src 'self' 'unsafe-inline'` | same-origin stylesheets, plus `<style>` elements and `style` attributes | the bundle's CSS and the host's `/pluginTheme.css`; Radix (the phone drawer's scroll lock) and sonner (toasts) inject `<style>`. The renderer never emits a `style` attribute or `<style>` element from page content (pinned by `frontend/src/lib/render.test.tsx`) |
+| `script-src 'self'` | same-origin script files only: no inline script, no `eval` | the bundle, `theme-init.js`, the host's `../../pluginBridge.js` |
+| `style-src 'self' 'unsafe-inline'` | same-origin stylesheets, plus `<style>` elements and `style` attributes | the bundle's CSS and the host's `../../pluginTheme.css`; Radix (the phone drawer's scroll lock) and sonner (toasts) inject `<style>`. The renderer never emits a `style` attribute or `<style>` element from page content (pinned by `frontend/src/lib/render.test.tsx`) |
 | `font-src 'self'` | same-origin fonts | the host's Geist fonts, `/pluginTheme/fonts/…` |
 | `connect-src 'self'` | same-origin `fetch` | `api/…` |
 | `frame-ancestors 'self'` | framing by the same origin only | the conductor's iframe |
